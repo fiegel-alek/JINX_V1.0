@@ -1,33 +1,10 @@
-from datetime import UTC, datetime
 from unittest import TestCase
 
-from jinx.common.types import AdvisoryLabel, ConfidenceScore
-from jinx.core.provenance import ProvenanceRecord
+from jinx.common.types import AdvisoryLabel
 from jinx.core.schemas import AdvisoryOutput
 from jinx.modules.sim import SimulationScenario
 
-
-def confidence() -> ConfidenceScore:
-    return ConfidenceScore(
-        value=0.72,
-        scale="0.0-1.0",
-        rationale="Synthetic scenario is internally consistent but incomplete.",
-        source_quality=0.8,
-        recency_factor=0.9,
-        corroboration_factor=0.7,
-        contradiction_factor=0.1,
-        completeness_factor=0.6,
-    )
-
-
-def provenance() -> ProvenanceRecord:
-    return ProvenanceRecord(
-        source="synthetic-feed",
-        time_received=datetime.now(UTC),
-        processed_by_module="jinx-sim",
-        transformations=("parsed", "validated"),
-        confidence=confidence(),
-    )
+from tests.unit.helpers import confidence, provenance
 
 
 class GuardrailTests(TestCase):

@@ -1,0 +1,16 @@
+{
+  "name": "communications_conflict_shadow_run",
+  "synthetic_label": "synthetic",
+  "events": [
+    {
+      "name": "expected_communications_available",
+      "offset_seconds": 0,
+      "payload_schema": "event.v1"
+    },
+    {
+      "name": "reported_communications_loss",
+      "offset_seconds": 60,
+      "payload_schema": "event.v1"
+    }
+  ]
+}

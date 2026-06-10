@@ -1,0 +1,1 @@
+"""Bounded context builder placeholder."""

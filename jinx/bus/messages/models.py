@@ -13,6 +13,7 @@ from jinx.common.types.enums import DataMode
 class FabricMessage:
     source_module: str
     destination: str
+    payload_schema: str
     schema_version: str
     sensitivity_label: str
     license_scope: str
@@ -29,6 +30,8 @@ class FabricMessage:
             raise ValueError("message source_module is required")
         if not self.destination:
             raise ValueError("message destination is required")
+        if not self.payload_schema:
+            raise ValueError("message payload_schema is required")
         if not self.schema_version:
             raise ValueError("message schema_version is required")
         if self.data_mode in {DataMode.SYNTHETIC, DataMode.MOCK} and not self.simulation_flag:

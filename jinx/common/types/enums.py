@@ -47,3 +47,13 @@ class AuditEventType(StrEnum):
     USER_OVERRIDE = "user_override"
     SIMULATION_EVENT = "simulation_event"
     ADAPTER_USAGE = "adapter_usage"
+
+
+class EventType(StrEnum):
+    COMMUNICATIONS_LOSS = "communications_loss"
+    CONFLICTING_REPORT = "conflicting_report"
+    MOVEMENT_DELAY = "movement_delay"
+    WEATHER_IMPACT = "weather_impact"
+    ROUTE_ISSUE = "route_issue"
+    LOGISTICS_ISSUE = "logistics_issue"
+    UNKNOWN_REQUIRES_REVIEW = "unknown_requires_review"
