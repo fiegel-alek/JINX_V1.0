@@ -77,9 +77,9 @@ class C5ISRReportIntake:
             OperatorReportType.MEDICAL: EventType.UNKNOWN_REQUIRES_REVIEW,
             OperatorReportType.HAZARD: EventType.UNKNOWN_REQUIRES_REVIEW,
             OperatorReportType.OBSERVATION: EventType.UNKNOWN_REQUIRES_REVIEW,
-            OperatorReportType.POSITION_UPDATE: EventType.UNKNOWN_REQUIRES_REVIEW,
+            OperatorReportType.POSITION_UPDATE: EventType.POSITION_UPDATE,
             OperatorReportType.REQUEST_INFORMATION: EventType.UNKNOWN_REQUIRES_REVIEW,
-            OperatorReportType.STATUS_UPDATE: EventType.UNKNOWN_REQUIRES_REVIEW,
+            OperatorReportType.STATUS_UPDATE: EventType.STATUS_UPDATE,
             OperatorReportType.UNKNOWN_REQUIRES_REVIEW: EventType.UNKNOWN_REQUIRES_REVIEW,
         }
         return mapping[report_type]

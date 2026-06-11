@@ -6,6 +6,7 @@ from jinx.common.types.enums import (
     AuditEventType,
     DataMode,
     EventType,
+    HumanCommandType,
     OperatorReportType,
     SafetyClassification,
 )
@@ -16,6 +17,7 @@ __all__ = [
     "ConfidenceScore",
     "DataMode",
     "EventType",
+    "HumanCommandType",
     "OperatorReportType",
     "SafetyClassification",
 ]

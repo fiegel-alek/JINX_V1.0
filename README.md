@@ -41,6 +41,12 @@ This repository is being rebuilt as a simulation-first, advisory, human-in-the-l
 - Core human-review recommendation generation from conflict packets.
 - BRAIN doctrine, TACSOP, and SOP knowledge-reference primitives.
 - Proposed JINX-Operator Mini edge-client schemas for operator reports and C5ISR advisories.
+- Human-originated command carrier schema that Core cannot generate.
+- C5ISR COP state management primitives.
+- Boundary-aware message redaction in the router.
+- Synthetic JINX-NET MTDL validation stubs.
+- Synthetic/authorized JINX-INTEL summary fusion and impact mapping.
+- In-memory audit and provenance stores.
 - End-to-end tests for synthetic event reasoning through policy and bus routing.
 
 ## Repository Layout

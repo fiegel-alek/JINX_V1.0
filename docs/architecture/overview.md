@@ -44,3 +44,13 @@ The current implementation adds the first vertical reasoning path:
 3. JINX-Core emits a confidence-rated conflict packet and human-review recommendation.
 4. JINX-BUS routes both through JINX-Core policy checks.
 5. The audit layer records policy and routing decisions.
+
+## Phase 2 Components
+
+- Human-originated command input is modeled explicitly. Core may carry and audit it, but cannot generate it.
+- C5ISR can build COP state tracks from operator-originated reports.
+- BUS/FABRIC can apply entitlement-aware redaction before delivery.
+- BRAIN can provide doctrine/SOP references to Core context building.
+- NET can validate synthetic MTDL network status for timing and LOS review issues.
+- INTEL can fuse synthetic or authorized summaries into human-review impact notices.
+- Core has in-memory audit and provenance stores for early persistence tests.

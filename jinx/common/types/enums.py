@@ -58,6 +58,8 @@ class EventType(StrEnum):
     WEATHER_IMPACT = "weather_impact"
     ROUTE_ISSUE = "route_issue"
     LOGISTICS_ISSUE = "logistics_issue"
+    POSITION_UPDATE = "position_update"
+    STATUS_UPDATE = "status_update"
     UNKNOWN_REQUIRES_REVIEW = "unknown_requires_review"
 
 
@@ -71,3 +73,11 @@ class OperatorReportType(StrEnum):
     HAZARD = "hazard"
     REQUEST_INFORMATION = "request_information"
     UNKNOWN_REQUIRES_REVIEW = "unknown_requires_review"
+
+
+class HumanCommandType(StrEnum):
+    COORDINATION = "coordination"
+    INFORMATION_REQUEST = "information_request"
+    STATUS_REQUEST = "status_request"
+    HUMAN_DIRECTION = "human_direction"
+    REVIEW_DECISION = "review_decision"

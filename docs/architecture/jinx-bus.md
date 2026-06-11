@@ -11,6 +11,7 @@ During early development it remains simulation-first. The current router is an i
 - Denied messages go to a dead-letter list.
 - Allowed and denied routing decisions are written to the audit log.
 - No real tactical radio access is implemented.
+- Optional entitlement-aware boundary redaction can be applied before message delivery.
 
 ## Future Work
 

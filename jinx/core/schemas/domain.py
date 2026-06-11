@@ -6,12 +6,31 @@ from typing import Mapping
 from uuid import uuid4
 
 from jinx.common.types.confidence import ConfidenceScore
-from jinx.common.types.enums import AdvisoryLabel, DataMode, EventType, OperatorReportType
+from jinx.common.types.enums import (
+    AdvisoryLabel,
+    DataMode,
+    EventType,
+    HumanCommandType,
+    OperatorReportType,
+)
 from jinx.core.provenance.models import ProvenanceRecord
 
 PROHIBITED_OPERATOR_ACTION_TERMS = frozenset(
     {
         "autonomous order",
+        "authorize strike",
+        "control weapon",
+        "engage target",
+        "fire mission",
+        "kill",
+        "lethal action",
+        "retask collector",
+        "targeting decision",
+    }
+)
+
+PROHIBITED_HUMAN_COMMAND_TERMS = frozenset(
+    {
         "authorize strike",
         "control weapon",
         "engage target",
@@ -213,3 +232,78 @@ class COPAdvisory:
         for term in PROHIBITED_OPERATOR_ACTION_TERMS:
             if term in combined:
                 raise ValueError(f"COP advisory contains prohibited action language: {term}")
+
+
+@dataclass(frozen=True, slots=True)
+class HumanCommandInput:
+    command_type: HumanCommandType
+    issuing_user_id: str
+    issuing_role: str
+    text: str
+    provenance: ProvenanceRecord
+    data_mode: DataMode
+    target_module: str
+    human_originated: bool = True
+    requires_acknowledgement: bool = True
+    generated_by_core: bool = False
+    simulation_flag: bool = True
+    id: str = field(default_factory=lambda: f"human-cmd-{uuid4()}")
+    timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
+
+    def __post_init__(self) -> None:
+        if not self.issuing_user_id:
+            raise ValueError("human command issuing_user_id is required")
+        if not self.issuing_role:
+            raise ValueError("human command issuing_role is required")
+        if not self.text:
+            raise ValueError("human command text is required")
+        if not self.target_module:
+            raise ValueError("human command target_module is required")
+        if not self.human_originated:
+            raise ValueError("commands must be human-originated")
+        if self.generated_by_core:
+            raise ValueError("JINX-Core must not generate command authority")
+        if self.data_mode in {DataMode.SYNTHETIC, DataMode.MOCK} and not self.simulation_flag:
+            raise ValueError("synthetic and mock human commands must be marked as simulation")
+
+        lowered = self.text.lower()
+        for term in PROHIBITED_HUMAN_COMMAND_TERMS:
+            if term in lowered:
+                raise ValueError(f"human command contains prohibited action language: {term}")
+
+
+@dataclass(frozen=True, slots=True)
+class COPTrack:
+    entity: EntityRef
+    location: Location
+    confidence: ConfidenceScore
+    provenance: ProvenanceRecord
+    last_report_id: str
+    status: str = "unknown"
+    metadata: Mapping[str, str] = field(default_factory=dict)
+    updated_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+
+    def __post_init__(self) -> None:
+        if not self.last_report_id:
+            raise ValueError("COP track last_report_id is required")
+        if not self.status:
+            raise ValueError("COP track status is required")
+
+
+@dataclass(frozen=True, slots=True)
+class COPState:
+    name: str
+    tracks: tuple[COPTrack, ...]
+    data_mode: DataMode
+    provenance_chain: tuple[ProvenanceRecord, ...]
+    simulation_flag: bool = True
+    id: str = field(default_factory=lambda: f"cop-state-{uuid4()}")
+    updated_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+
+    def __post_init__(self) -> None:
+        if not self.name:
+            raise ValueError("COP state name is required")
+        if not self.provenance_chain:
+            raise ValueError("COP state requires provenance")
+        if self.data_mode in {DataMode.SYNTHETIC, DataMode.MOCK} and not self.simulation_flag:
+            raise ValueError("synthetic and mock COP states must be marked as simulation")

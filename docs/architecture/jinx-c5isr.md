@@ -17,3 +17,9 @@ C5ISR may return:
 - safety or communications warnings
 
 C5ISR must not return operational orders, autonomous tasking, targeting decisions, or weapons-control instructions.
+
+## Phase 2 Behavior
+
+- Converts operator reports into normalized events.
+- Builds COP tracks from event locations and provenance.
+- Produces COP state snapshots for Core review and audit.

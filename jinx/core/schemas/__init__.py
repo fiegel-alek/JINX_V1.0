@@ -3,9 +3,12 @@
 from jinx.core.schemas.advisory import AdvisoryOutput
 from jinx.core.schemas.domain import (
     COPAdvisory,
+    COPState,
+    COPTrack,
     ConflictPacket,
     EntityRef,
     Event,
+    HumanCommandInput,
     Location,
     OperatorReport,
     Recommendation,
@@ -14,9 +17,12 @@ from jinx.core.schemas.domain import (
 __all__ = [
     "AdvisoryOutput",
     "COPAdvisory",
+    "COPState",
+    "COPTrack",
     "ConflictPacket",
     "EntityRef",
     "Event",
+    "HumanCommandInput",
     "Location",
     "OperatorReport",
     "Recommendation",

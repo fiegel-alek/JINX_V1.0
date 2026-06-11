@@ -21,3 +21,15 @@ Append-only record of inputs, outputs, module calls, policy decisions, redaction
 ## ModuleManifest
 
 Declares module identity, license scope, permissions, allowed inputs, allowed outputs, capabilities, dependencies, safety classification, and simulation support.
+
+## HumanCommandInput
+
+Represents command input that originated from a human user. Core may carry and audit this object but must not generate it. Prohibited targeting, weapon-control, lethal-action, and collection-retasking language is rejected.
+
+## COPState
+
+Represents a C5ISR common operational picture snapshot with tracks, locations, confidence, and provenance.
+
+## OperatorReport and COPAdvisory
+
+`OperatorReport` captures human-originated edge reports from JINX-Operator Mini. `COPAdvisory` captures advisory-only C5ISR responses to operators.

@@ -11,9 +11,26 @@ def default_module_manifests() -> tuple[ModuleManifest, ...]:
             version="0.1.0",
             licensed=True,
             license_scope="core",
-            allowed_inputs=frozenset({"event.v1", "conflict_packet.v1", "recommendation.v1"}),
+            allowed_inputs=frozenset(
+                {
+                    "event.v1",
+                    "conflict_packet.v1",
+                    "recommendation.v1",
+                    "human_command.v1",
+                    "cop_state.v1",
+                    "doctrine_reference.v1",
+                    "intel_impact.v1",
+                    "network_issue.v1",
+                }
+            ),
             allowed_outputs=frozenset(
-                {"policy_decision.v1", "audit_record.v1", "conflict_packet.v1", "recommendation.v1"}
+                {
+                    "policy_decision.v1",
+                    "audit_record.v1",
+                    "conflict_packet.v1",
+                    "recommendation.v1",
+                    "human_command_ack.v1",
+                }
             ),
             required_permissions=frozenset({"memory:write", "audit:write", "policy:evaluate"}),
             capabilities=frozenset(
@@ -28,6 +45,8 @@ def default_module_manifests() -> tuple[ModuleManifest, ...]:
                     "policy",
                     "audit",
                     "provenance",
+                    "human_command_carrier",
+                    "memory_store",
                 }
             ),
             dependencies=frozenset({"jinx-brain"}),
@@ -40,10 +59,30 @@ def default_module_manifests() -> tuple[ModuleManifest, ...]:
             licensed=True,
             license_scope="fabric",
             allowed_inputs=frozenset(
-                {"event.v1", "conflict_packet.v1", "recommendation.v1", "operator_report.v1", "cop_advisory.v1"}
+                {
+                    "event.v1",
+                    "conflict_packet.v1",
+                    "recommendation.v1",
+                    "operator_report.v1",
+                    "cop_advisory.v1",
+                    "human_command.v1",
+                    "network_issue.v1",
+                    "intel_impact.v1",
+                    "cop_state.v1",
+                }
             ),
             allowed_outputs=frozenset(
-                {"event.v1", "conflict_packet.v1", "recommendation.v1", "operator_report.v1", "cop_advisory.v1"}
+                {
+                    "event.v1",
+                    "conflict_packet.v1",
+                    "recommendation.v1",
+                    "operator_report.v1",
+                    "cop_advisory.v1",
+                    "human_command.v1",
+                    "network_issue.v1",
+                    "intel_impact.v1",
+                    "cop_state.v1",
+                }
             ),
             required_permissions=frozenset({"policy:evaluate", "audit:write"}),
             capabilities=frozenset(
@@ -72,9 +111,9 @@ def default_module_manifests() -> tuple[ModuleManifest, ...]:
             licensed=True,
             license_scope="c5isr",
             allowed_inputs=frozenset(
-                {"event.v1", "conflict_packet.v1", "recommendation.v1", "operator_report.v1"}
+                {"event.v1", "conflict_packet.v1", "recommendation.v1", "operator_report.v1", "human_command.v1"}
             ),
-            allowed_outputs=frozenset({"event.v1", "conflict_packet.v1", "cop_advisory.v1"}),
+            allowed_outputs=frozenset({"event.v1", "conflict_packet.v1", "cop_advisory.v1", "cop_state.v1"}),
             required_permissions=frozenset({"mock_adapter:read", "audit:write"}),
             capabilities=frozenset(
                 {
@@ -84,6 +123,8 @@ def default_module_manifests() -> tuple[ModuleManifest, ...]:
                     "warfighter_effects_review_stub",
                     "mission_parse_stub",
                     "event_parse_stub",
+                    "operator_report_intake",
+                    "cop_state_management",
                 }
             ),
             dependencies=frozenset({"jinx-core", "jinx-brain", "jinx-bus"}),
@@ -95,8 +136,8 @@ def default_module_manifests() -> tuple[ModuleManifest, ...]:
             version="0.1.0",
             licensed=True,
             license_scope="operator-mini",
-            allowed_inputs=frozenset({"cop_advisory.v1", "recommendation.v1"}),
-            allowed_outputs=frozenset({"operator_report.v1"}),
+            allowed_inputs=frozenset({"cop_advisory.v1", "recommendation.v1", "human_command_ack.v1"}),
+            allowed_outputs=frozenset({"operator_report.v1", "human_command.v1"}),
             required_permissions=frozenset({"operator_report:write", "audit:write"}),
             capabilities=frozenset(
                 {
@@ -104,6 +145,7 @@ def default_module_manifests() -> tuple[ModuleManifest, ...]:
                     "cop_advisory_receive",
                     "simulation_edge_client",
                     "disconnected_mock_mode",
+                    "human_command_submit",
                 }
             ),
             dependencies=frozenset({"jinx-c5isr"}),
@@ -116,7 +158,7 @@ def default_module_manifests() -> tuple[ModuleManifest, ...]:
             licensed=True,
             license_scope="net",
             allowed_inputs=frozenset({"event.v1"}),
-            allowed_outputs=frozenset({"event.v1", "conflict_packet.v1"}),
+            allowed_outputs=frozenset({"event.v1", "conflict_packet.v1", "network_issue.v1"}),
             required_permissions=frozenset({"mock_adapter:read", "audit:write"}),
             capabilities=frozenset(
                 {
@@ -125,6 +167,7 @@ def default_module_manifests() -> tuple[ModuleManifest, ...]:
                     "network_parse_stub",
                     "timing_check_stub",
                     "los_check_stub",
+                    "synthetic_mtdl_validation",
                 }
             ),
             dependencies=frozenset({"jinx-core", "jinx-brain", "jinx-bus"}),
@@ -137,10 +180,16 @@ def default_module_manifests() -> tuple[ModuleManifest, ...]:
             licensed=True,
             license_scope="intel",
             allowed_inputs=frozenset({"event.v1"}),
-            allowed_outputs=frozenset({"event.v1", "conflict_packet.v1"}),
+            allowed_outputs=frozenset({"event.v1", "conflict_packet.v1", "intel_impact.v1"}),
             required_permissions=frozenset({"mock_adapter:read", "audit:write"}),
             capabilities=frozenset(
-                {"intelligence_fusion_stub", "summary_ingest_stub", "correlation_stub", "impact_mapping_stub"}
+                {
+                    "intelligence_fusion_stub",
+                    "summary_ingest_stub",
+                    "correlation_stub",
+                    "impact_mapping_stub",
+                    "authorized_summary_fusion",
+                }
             ),
             dependencies=frozenset({"jinx-core", "jinx-brain", "jinx-bus"}),
             safety_classification=SafetyClassification.ADVISORY_REASONING,

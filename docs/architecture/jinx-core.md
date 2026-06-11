@@ -11,7 +11,14 @@ Core owns the platform rules and performs bounded reasoning across approved inpu
 - Produces confidence-rated `ConflictPacket` objects.
 - Produces human-review `Recommendation` objects.
 - Routes advisory outputs through policy and audit paths.
+- Carries human-originated command input without generating command authority.
+- Builds reasoning context from BRAIN doctrine/SOP references.
+- Stores audit and provenance records through early memory primitives.
 
 ## Relationship To BRAIN
 
 BRAIN feeds Core with doctrine, TACSOP, SOP, and mission-knowledge references. Core performs the active reasoning and advisory output generation.
+
+## Command Authority
+
+Core must never originate commands. Human command input is represented as a provenance-rich object so JINX can carry, audit, and route it while preserving the fact that authority came from a human.
