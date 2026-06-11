@@ -17,13 +17,19 @@ const els = {
   timelineList: document.querySelector("#timeline-list"),
   opsConsoleList: document.querySelector("#ops-console-list"),
   operatorLoopList: document.querySelector("#operator-loop-list"),
+  coreContextList: document.querySelector("#core-context-list"),
   conflictList: document.querySelector("#conflict-list"),
   recommendationList: document.querySelector("#recommendation-list"),
   analysisRunList: document.querySelector("#analysis-run-list"),
   explanationList: document.querySelector("#explanation-list"),
   brainChatList: document.querySelector("#brain-chat-list"),
+  brainExplanationList: document.querySelector("#brain-explanation-list"),
+  brainOptionList: document.querySelector("#brain-option-list"),
+  brainChecklistList: document.querySelector("#brain-checklist-list"),
+  learningProposalList: document.querySelector("#learning-proposal-list"),
   brainReferenceList: document.querySelector("#brain-reference-list"),
   auditList: document.querySelector("#audit-list"),
+  policyDecisionList: document.querySelector("#policy-decision-list"),
   provenanceList: document.querySelector("#provenance-list"),
   boundaryList: document.querySelector("#boundary-list"),
   isrFeedList: document.querySelector("#isr-feed-list"),
@@ -375,6 +381,17 @@ function renderAudit(records) {
   `);
 }
 
+function renderPolicyDecisions(records) {
+  document.querySelector("#policy-decision-count").textContent = records.length;
+  renderList(els.policyDecisionList, records.slice(-10).reverse(), "No policy decisions", (record) => `
+    <article class="item audit">
+      <strong>${record.allowed ? "allowed" : "denied"} · ${escapeHTML(record.source_module)} → ${escapeHTML(record.destination)}</strong>
+      <span>${escapeHTML(record.summary)}</span>
+      <span>${escapeHTML(record.payload_schema)} · ${escapeHTML(record.message_id)}</span>
+    </article>
+  `);
+}
+
 function renderProvenance(records) {
   document.querySelector("#provenance-count").textContent = records.length;
   renderList(els.provenanceList, records.slice(-10).reverse(), "No provenance", (record) => `
@@ -454,6 +471,64 @@ function renderOperatorLoop(packet) {
   `);
 }
 
+function renderCoreContext(context) {
+  document.querySelector("#core-context-count").textContent = (context.provenance_refs || []).length;
+  renderList(els.coreContextList, [context], "No bounded context", (record) => `
+    <article class="item ops">
+      <strong>${escapeHTML(record.source || "jinx-core.context")}</strong>
+      <span>modules: ${escapeHTML((record.allowed_modules || []).join(", ") || "none")}</span>
+      <span>redactions: ${escapeHTML((record.redactions || []).join("; ") || "none")}</span>
+      <span>provenance refs: ${escapeHTML((record.provenance_refs || []).slice(0, 6).join(", ") || "none")}</span>
+    </article>
+  `);
+}
+
+function renderBrainExplanations(records) {
+  document.querySelector("#brain-explanation-count").textContent = records.length;
+  renderList(els.brainExplanationList, records.slice(-6).reverse(), "No BRAIN explanations", (record) => `
+    <article class="item brain">
+      <strong>${escapeHTML(record.recommended_review_role)} · ${escapeHTML(record.answer_id)}</strong>
+      <span>${escapeHTML(record.what_was_detected)}</span>
+      <span>${escapeHTML(record.why_it_matters)}</span>
+      <span>redactions: ${escapeHTML((record.redactions || []).join("; ") || "none")}</span>
+    </article>
+  `);
+}
+
+function renderBrainOptions(records) {
+  document.querySelector("#brain-option-count").textContent = records.length;
+  renderList(els.brainOptionList, records.slice(-6).reverse(), "No BRAIN options", (record) => `
+    <article class="item recommendation">
+      <strong>${escapeHTML(record.confidence_band)} · human approval ${record.required_human_approval ? "required" : "missing"}</strong>
+      <span>${escapeHTML(record.description)}</span>
+      <span>modules: ${escapeHTML((record.affected_modules || []).join(", ") || "none")}</span>
+      <span>risks: ${escapeHTML((record.risks || []).join("; ") || "none")}</span>
+    </article>
+  `);
+}
+
+function renderBrainChecklists(records) {
+  document.querySelector("#brain-checklist-count").textContent = records.length;
+  renderList(els.brainChecklistList, records, "No BRAIN checklists", (record) => `
+    <article class="item brain">
+      <strong>${escapeHTML(record.title)}</strong>
+      <span>${escapeHTML(record.summary)}</span>
+      <span>tags: ${escapeHTML((record.tags || []).join(", ") || "none")}</span>
+    </article>
+  `);
+}
+
+function renderLearningProposals(records) {
+  document.querySelector("#learning-proposal-count").textContent = records.length;
+  renderList(els.learningProposalList, records.slice(-6).reverse(), "No learner proposals", (record) => `
+    <article class="item ops">
+      <strong>${escapeHTML(record.proposal_type)} · ${escapeHTML(record.review_status)}</strong>
+      <span>${escapeHTML(record.summary)}</span>
+      <span>review: ${escapeHTML(record.required_reviewer_role)} · evidence ${escapeHTML((record.evidence_refs || []).join(", ") || "none")}</span>
+    </article>
+  `);
+}
+
 function renderModules(modules) {
   els.moduleList.innerHTML = modules.map((module) => `
     <article class="module-card">
@@ -489,13 +564,19 @@ async function refreshDashboard() {
       events,
       opsConsole,
       operatorLoop,
+      coreContext,
       conflicts,
       recommendations,
       analysisRuns,
       explanations,
       brainChat,
+      brainExplanations,
+      brainOptions,
+      brainChecklists,
+      learningProposals,
       brainReferences,
       audit,
+      policyDecisions,
       provenance,
       boundaries,
       isrFeeds,
@@ -515,13 +596,19 @@ async function refreshDashboard() {
       getJSON("/api/events"),
       getJSON("/api/core/ops-console"),
       getJSON("/api/core/operator-loop"),
+      getJSON("/api/core/context"),
       getJSON("/api/conflicts"),
       getJSON("/api/recommendations"),
       getJSON("/api/core/analysis-runs"),
       getJSON("/api/core/explanations"),
       getJSON("/api/brain/chat-messages"),
+      getJSON("/api/brain/explanations"),
+      getJSON("/api/brain/options"),
+      getJSON("/api/brain/checklists"),
+      getJSON("/api/brain/learning-proposals"),
       getJSON("/api/brain/references"),
       getJSON("/api/core/audit"),
+      getJSON("/api/core/policy-decisions"),
       getJSON("/api/core/provenance"),
       getJSON("/api/core/module-boundaries"),
       getOptionalJSON("/api/isr-feeds", { isr_feeds: [] }),
@@ -541,13 +628,19 @@ async function refreshDashboard() {
     renderEvents(events.events || []);
     renderOpsConsole(opsConsole);
     renderOperatorLoop(operatorLoop.operator_loop || {});
+    renderCoreContext(coreContext.core_context || {});
     renderConflicts(conflicts.conflicts || []);
     renderRecommendations(recommendations.recommendations || []);
     renderAnalysisRuns(analysisRuns.analysis_runs || []);
     renderExplanations(explanations.explanations || []);
     renderBrainChat(brainChat.messages || []);
+    renderBrainExplanations(brainExplanations.brain_explanations || []);
+    renderBrainOptions(brainOptions.brain_options || []);
+    renderBrainChecklists(brainChecklists.checklists || []);
+    renderLearningProposals(learningProposals.learning_proposals || []);
     renderBrainReferences(brainReferences.matches || []);
     renderAudit(audit.audit_records || []);
+    renderPolicyDecisions(policyDecisions.policy_decisions || []);
     renderProvenance(provenance.provenance || []);
     renderBoundaries(boundaries);
     renderISRFeeds(isrFeeds.isr_feeds || []);

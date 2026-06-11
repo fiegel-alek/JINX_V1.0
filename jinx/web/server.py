@@ -121,6 +121,10 @@ class JINXRequestHandler(SimpleHTTPRequestHandler):
                 self._require_permission("cop:read")
                 self._send_json(self.server.api_handlers.service.explanations_document())
                 return
+            if parsed.path == "/api/core/context":
+                self._require_permission("ops:read")
+                self._send_json(self.server.api_handlers.service.core_context_document())
+                return
             if parsed.path == "/api/core/ops-console":
                 self._require_permission("ops:read")
                 self._send_json(self.server.api_handlers.service.core_ops_console_document())
@@ -128,6 +132,10 @@ class JINXRequestHandler(SimpleHTTPRequestHandler):
             if parsed.path == "/api/core/operator-loop":
                 self._require_permission("ops:read")
                 self._send_json(self.server.api_handlers.service.operator_loop_document())
+                return
+            if parsed.path == "/api/core/policy-decisions":
+                self._require_permission("audit:read")
+                self._send_json(self.server.api_handlers.service.policy_decisions_document())
                 return
             if parsed.path == "/api/core/audit":
                 self._require_permission("audit:read")
@@ -152,6 +160,26 @@ class JINXRequestHandler(SimpleHTTPRequestHandler):
             if parsed.path == "/api/brain/chat-messages":
                 self._require_permission("brain:chat")
                 self._send_json(self.server.api_handlers.service.brain_chat_messages_document())
+                return
+            if parsed.path == "/api/brain/contexts":
+                self._require_permission("brain:chat")
+                self._send_json(self.server.api_handlers.service.brain_contexts_document())
+                return
+            if parsed.path == "/api/brain/explanations":
+                self._require_permission("brain:chat")
+                self._send_json(self.server.api_handlers.service.brain_explanations_document())
+                return
+            if parsed.path == "/api/brain/options":
+                self._require_permission("brain:chat")
+                self._send_json(self.server.api_handlers.service.brain_options_document())
+                return
+            if parsed.path == "/api/brain/checklists":
+                self._require_permission("brain:query")
+                self._send_json(self.server.api_handlers.service.brain_checklists_document())
+                return
+            if parsed.path == "/api/brain/learning-proposals":
+                self._require_permission("brain:chat")
+                self._send_json(self.server.api_handlers.service.learning_proposals_document())
                 return
             if parsed.path == "/api/intelligence-summaries":
                 self._require_permission("isr:read")

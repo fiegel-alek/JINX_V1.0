@@ -4,8 +4,14 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from jinx.brain.chat import BrainChatEngine, BrainChatQuestion
+from jinx.brain.confidence import BrainConfidenceEngine
+from jinx.brain.context_builder import BoundedBrainContext, BrainContextBuilder
+from jinx.brain.explanation import BrainExplanationEngine
 from jinx.brain.knowledge.defaults import build_synthetic_doctrine_repository
+from jinx.brain.knowledge.models import DoctrineScope
 from jinx.brain.knowledge.repository import DoctrineRepository
+from jinx.brain.learner import ConservativeLearner
+from jinx.brain.option_generation import BrainOptionGenerator
 from jinx.bus import FabricMessage, MessageRouter, RouteResult
 from jinx.common.types import DataMode
 from jinx.core.audit import AuditLog
@@ -56,6 +62,11 @@ class JINXApplicationService:
         self.core_reasoning = CoreReasoningWorkflow(self.router)
         self.brain_repository: DoctrineRepository = build_synthetic_doctrine_repository()
         self.brain_chat = BrainChatEngine(self.brain_repository)
+        self.brain_context_builder = BrainContextBuilder()
+        self.brain_confidence = BrainConfidenceEngine()
+        self.brain_explanations = BrainExplanationEngine()
+        self.brain_options = BrainOptionGenerator()
+        self.brain_learner = ConservativeLearner()
         self.intel_fusion = IntelligenceFusionEngine()
         self.mission_impact_analyzer = MissionImpactAnalyzer()
         self.mission_context: MissionContext | None = None
@@ -381,8 +392,14 @@ class JINXApplicationService:
         use_core_reachback: bool = True,
     ) -> dict[str, object]:
         question = BrainChatQuestion(text=text, user_id=user_id, role=role, session_id=session_id)
-        context = self._bounded_core_reachback() if use_core_reachback else {}
+        bounded_context = self._brain_bounded_context() if use_core_reachback else None
+        context = dict(bounded_context.context) if bounded_context else {}
         exchange = self.brain_chat.answer(question, context)
+        references = tuple(self.brain_repository.get(ref) for ref in exchange.answer.references)
+        confidence = self.brain_confidence.assess(references, bounded_context)
+        explanation = self.brain_explanations.explain(question, exchange.answer, bounded_context)
+        options = self.brain_options.generate(question, exchange.answer)
+        learning_proposal = self.brain_learner.propose_from_chat(question, exchange.answer)
         document = {
             "session_id": exchange.answer.session_id,
             "question": {
@@ -408,6 +425,80 @@ class JINXApplicationService:
             },
         }
         if self.database is not None:
+            if bounded_context is not None:
+                self.database.save_document(
+                    "brain_contexts",
+                    bounded_context.id,
+                    self._brain_context_document(bounded_context),
+                )
+            self.database.save_document(
+                "brain_confidence",
+                exchange.answer.id,
+                {
+                    "id": exchange.answer.id,
+                    "question_id": question.id,
+                    "answer_id": exchange.answer.id,
+                    "value": confidence.value,
+                    "scale": confidence.scale,
+                    "rationale": confidence.rationale,
+                    "source_quality": confidence.source_quality,
+                    "recency_factor": confidence.recency_factor,
+                    "corroboration_factor": confidence.corroboration_factor,
+                    "contradiction_factor": confidence.contradiction_factor,
+                    "completeness_factor": confidence.completeness_factor,
+                },
+            )
+            self.database.save_document(
+                "brain_explanations",
+                explanation.id,
+                {
+                    "id": explanation.id,
+                    "question_id": explanation.question_id,
+                    "answer_id": explanation.answer_id,
+                    "what_was_detected": explanation.what_was_detected,
+                    "why_it_matters": explanation.why_it_matters,
+                    "references": list(explanation.references),
+                    "assumptions": list(explanation.assumptions),
+                    "uncertainty": list(explanation.uncertainty),
+                    "redactions": list(explanation.redactions),
+                    "recommended_review_role": explanation.recommended_review_role,
+                    "timestamp": explanation.timestamp.isoformat(),
+                },
+            )
+            for option in options:
+                self.database.save_document(
+                    "brain_options",
+                    option.id,
+                    {
+                        "id": option.id,
+                        "answer_id": exchange.answer.id,
+                        "description": option.description,
+                        "rationale": option.rationale,
+                        "assumptions": list(option.assumptions),
+                        "risks": list(option.risks),
+                        "tradeoffs": list(option.tradeoffs),
+                        "confidence_band": option.confidence_band,
+                        "required_human_approval": option.required_human_approval,
+                        "affected_modules": list(option.affected_modules),
+                        "disallowed_actions": list(option.disallowed_actions),
+                        "timestamp": option.timestamp.isoformat(),
+                    },
+                )
+            self.database.save_document(
+                "learning_proposals",
+                learning_proposal.id,
+                {
+                    "id": learning_proposal.id,
+                    "source_question_id": learning_proposal.source_question_id,
+                    "source_answer_id": learning_proposal.source_answer_id,
+                    "proposal_type": learning_proposal.proposal_type,
+                    "summary": learning_proposal.summary,
+                    "evidence_refs": list(learning_proposal.evidence_refs),
+                    "review_status": learning_proposal.review_status,
+                    "required_reviewer_role": learning_proposal.required_reviewer_role,
+                    "timestamp": learning_proposal.timestamp.isoformat(),
+                },
+            )
             self.database.save_document("brain_chat_sessions", exchange.answer.session_id, {"id": exchange.answer.session_id})
             self.database.save_document("brain_chat_messages", exchange.answer.id, document)
             self._append_timeline(
@@ -424,6 +515,39 @@ class JINXApplicationService:
     def brain_chat_messages_document(self) -> dict[str, object]:
         return {"messages": self.database.list_documents("brain_chat_messages") if self.database else []}
 
+    def brain_contexts_document(self) -> dict[str, object]:
+        return {"contexts": self.database.list_documents("brain_contexts") if self.database else []}
+
+    def brain_explanations_document(self) -> dict[str, object]:
+        return {"brain_explanations": self.database.list_documents("brain_explanations") if self.database else []}
+
+    def brain_options_document(self) -> dict[str, object]:
+        return {"brain_options": self.database.list_documents("brain_options") if self.database else []}
+
+    def learning_proposals_document(self) -> dict[str, object]:
+        return {"learning_proposals": self.database.list_documents("learning_proposals") if self.database else []}
+
+    def brain_checklists_document(self) -> dict[str, object]:
+        records = [
+            record
+            for record in self.brain_repository.all()
+            if record.scope == DoctrineScope.REVIEW_CHECKLIST
+        ]
+        return {
+            "checklists": [
+                {
+                    "id": record.id,
+                    "title": record.title,
+                    "summary": record.summary,
+                    "source": record.source,
+                    "applicability": list(record.applicability),
+                    "restrictions": list(record.restrictions),
+                    "tags": sorted(record.tags),
+                }
+                for record in records
+            ]
+        }
+
     def analysis_runs_document(self) -> dict[str, object]:
         return {"analysis_runs": self.database.list_documents("analysis_runs") if self.database else []}
 
@@ -431,6 +555,9 @@ class JINXApplicationService:
         return {"explanations": self.database.list_documents("explanations") if self.database else []}
 
     def audit_document(self) -> dict[str, object]:
+        self._sync_audit_ledger()
+        if self.database is not None:
+            return {"audit_records": self.database.list_documents("audit_records")}
         return {
             "audit_records": [
                 {
@@ -445,7 +572,16 @@ class JINXApplicationService:
             ]
         }
 
+    def policy_decisions_document(self) -> dict[str, object]:
+        self._sync_audit_ledger()
+        if self.database is None:
+            return {"policy_decisions": []}
+        return {"policy_decisions": self.database.list_documents("policy_decisions")}
+
     def provenance_document(self) -> dict[str, object]:
+        self._sync_provenance_ledger()
+        if self.database is not None:
+            return {"provenance": self.database.list_documents("provenance_records")}
         provenance = []
         for event in self._events:
             provenance.append(
@@ -460,6 +596,19 @@ class JINXApplicationService:
                 }
             )
         return {"provenance": provenance}
+
+    def core_context_document(self) -> dict[str, object]:
+        if self.database is None:
+            return {"core_context": {}}
+        raw = self._bounded_core_reachback()
+        context = self.brain_context_builder.build(
+            raw,
+            allowed_modules=self._licensed_module_names(),
+            source="jinx-core.context-builder",
+        )
+        document = self._brain_context_document(context)
+        self.database.save_document("core_contexts", context.id, document)
+        return {"core_context": document}
 
     def module_boundary_document(self) -> dict[str, object]:
         registry = build_default_registry()
@@ -514,6 +663,9 @@ class JINXApplicationService:
                 "mission_impacts": self.database.count("mission_impacts"),
                 "isr_feeds": self.database.count("isr_feeds"),
                 "brain_chat_messages": self.database.count("brain_chat_messages"),
+                "brain_options": self.database.count("brain_options"),
+                "learning_proposals": self.database.count("learning_proposals"),
+                "policy_decisions": self.database.count("policy_decisions"),
                 "simulation_runs": self.database.count("simulation_runs"),
             }
         boundary = self.module_boundary_document()
@@ -535,6 +687,7 @@ class JINXApplicationService:
             "audit_records": len(self.audit_document()["audit_records"]),
             "provenance_records": len(self.provenance_document()["provenance"]),
             "active_operator_loop": self.operator_loop_document()["operator_loop"],
+            "active_core_context": self.core_context_document()["core_context"],
             "guardrails": [
                 "JINX-Core produces advisory analysis only.",
                 "Human input is required for command decisions.",
@@ -626,6 +779,106 @@ class JINXApplicationService:
             "isr_feeds": self.database.list_documents("isr_feeds")[-5:],
             "modules": [module["name"] for module in self.module_boundary_document()["modules"]],
         }
+
+    def _brain_bounded_context(self) -> BoundedBrainContext | None:
+        raw_context = self._bounded_core_reachback()
+        if not raw_context:
+            return None
+        return self.brain_context_builder.build(
+            raw_context,
+            allowed_modules=self._licensed_module_names(),
+            source="jinx-core.reachback",
+        )
+
+    def _licensed_module_names(self) -> frozenset[str]:
+        return frozenset(module["name"] for module in self.module_boundary_document()["modules"])
+
+    @staticmethod
+    def _brain_context_document(context: BoundedBrainContext) -> dict[str, object]:
+        return {
+            "id": context.id,
+            "source": context.source,
+            "allowed_modules": sorted(context.allowed_modules),
+            "context": dict(context.context),
+            "redactions": list(context.redactions),
+            "uncertainty": list(context.uncertainty),
+            "provenance_refs": list(context.provenance_refs),
+            "timestamp": context.timestamp.isoformat(),
+        }
+
+    def _sync_audit_ledger(self) -> None:
+        if self.database is None:
+            return
+        for record in self.audit_log.records():
+            document = {
+                "id": record.id,
+                "event_type": record.event_type.value,
+                "actor": record.actor,
+                "summary": record.summary,
+                "metadata": dict(record.metadata),
+                "timestamp": record.timestamp.isoformat(),
+            }
+            self.database.save_document("audit_records", record.id, document)
+            if record.event_type.value == "policy_decision":
+                self.database.save_document(
+                    "policy_decisions",
+                    record.id,
+                    {
+                        **document,
+                        "allowed": str(record.metadata.get("allowed", "False")).lower() == "true",
+                        "source_module": record.metadata.get("source_module", ""),
+                        "destination": record.metadata.get("destination", ""),
+                        "payload_schema": record.metadata.get("payload_schema", ""),
+                        "message_id": record.metadata.get("message_id", ""),
+                    },
+                )
+
+    def _sync_provenance_ledger(self) -> None:
+        if self.database is None:
+            return
+        for event in self._events:
+            record = event.provenance
+            document_id = f"prov-{event.id}"
+            self.database.save_document(
+                "provenance_records",
+                document_id,
+                {
+                    "id": document_id,
+                    "source": record.source,
+                    "processed_by_module": record.processed_by_module,
+                    "transformations": list(record.transformations),
+                    "confidence": record.confidence.value,
+                    "time_received": record.time_received.isoformat(),
+                    "event_id": event.id,
+                    "linked_object_type": "event",
+                    "linked_object_id": event.id,
+                },
+            )
+
+    def _persist_provenance_chain(
+        self,
+        linked_object_type: str,
+        linked_object_id: str,
+        records,
+    ) -> None:
+        if self.database is None:
+            return
+        for index, record in enumerate(records, start=1):
+            document_id = f"prov-{linked_object_type}-{linked_object_id}-{index}"
+            self.database.save_document(
+                "provenance_records",
+                document_id,
+                {
+                    "id": document_id,
+                    "source": record.source,
+                    "processed_by_module": record.processed_by_module,
+                    "transformations": list(record.transformations),
+                    "confidence": record.confidence.value,
+                    "time_received": record.time_received.isoformat(),
+                    "linked_object_type": linked_object_type,
+                    "linked_object_id": linked_object_id,
+                },
+            )
 
     def _refresh_operator_loop(self, reason: str, related_ids: dict[str, str]) -> dict[str, object]:
         packet = self._build_operator_loop_packet(reason, related_ids)
@@ -1007,6 +1260,7 @@ class JINXApplicationService:
                     "timestamp": conflict.timestamp.isoformat(),
                 },
             )
+            self._persist_provenance_chain("conflict", conflict.id, conflict.provenance_chain)
         for recommendation in result.recommendations:
             self.database.save_document(
                 "recommendations",
@@ -1026,6 +1280,7 @@ class JINXApplicationService:
                     "brain_references": list(recommendation.brain_references),
                 },
             )
+            self._persist_provenance_chain("recommendation", recommendation.id, recommendation.provenance_chain)
 
     def _persist_intelligence_summary(
         self,
