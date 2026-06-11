@@ -14,9 +14,11 @@ const els = {
   commandForm: document.querySelector("#command-form"),
   refreshButton: document.querySelector("#refresh-button"),
   demoButton: document.querySelector("#demo-button"),
+  roleSelect: document.querySelector("#role-select"),
   metrics: {
     tracks: document.querySelector("#metric-tracks"),
     reports: document.querySelector("#metric-reports"),
+    reviewQueue: document.querySelector("#metric-review-queue"),
     advisories: document.querySelector("#metric-advisories"),
     events: document.querySelector("#metric-events"),
   },
@@ -28,8 +30,16 @@ function setStatus(ok, text) {
   els.apiStatusText.textContent = text;
 }
 
+function activeRole() {
+  return els.roleSelect.value;
+}
+
+function requestHeaders(extra = {}) {
+  return { "X-JINX-Role": activeRole(), ...extra };
+}
+
 async function getJSON(url) {
-  const response = await fetch(url);
+  const response = await fetch(url, { headers: requestHeaders() });
   if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
   return response.json();
 }
@@ -37,7 +47,7 @@ async function getJSON(url) {
 async function postJSON(url, payload = {}) {
   const response = await fetch(url, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: requestHeaders({ "Content-Type": "application/json" }),
     body: JSON.stringify(payload),
   });
   const body = await response.json();
@@ -76,6 +86,7 @@ function renderTracks(cop) {
     <article class="item">
       <strong>${escapeHTML(track.label)}</strong>
       <span>${escapeHTML(track.location)} · ${escapeHTML(track.status)} · confidence ${escapeHTML(track.confidence)}</span>
+      <span>${escapeHTML(track.report_count)} reports · ${escapeHTML(track.advisory_count)} advisories · updated ${formatTime(track.updated_at)}</span>
     </article>
   `);
 
@@ -91,13 +102,52 @@ function renderTracks(cop) {
 
 function renderReports(reports) {
   els.metrics.reports.textContent = reports.length;
+  els.metrics.reviewQueue.textContent = reports.filter((report) => !["validated", "closed"].includes(report.review_state)).length;
   document.querySelector("#report-count").textContent = reports.length;
   renderList(els.reportList, reports, "No reports", (report) => `
     <article class="item">
       <strong>${escapeHTML(report.reporter_id)} · ${escapeHTML(report.report_type)}</strong>
       <span>${escapeHTML(report.location || "no location")} · confidence ${escapeHTML(report.confidence)} · ${escapeHTML(report.summary)}</span>
+      <div class="review-row">
+        <span class="badge review-${escapeHTML(report.review_state || "new")}">${reviewLabel(report.review_state)}</span>
+        <button type="button" data-review="${escapeHTML(report.id)}" data-state="under_review">Review</button>
+        <button type="button" data-review="${escapeHTML(report.id)}" data-state="validated">Validate</button>
+        <button type="button" data-review="${escapeHTML(report.id)}" data-state="needs_more_info">Need info</button>
+        <button type="button" data-review="${escapeHTML(report.id)}" data-state="closed">Close</button>
+      </div>
     </article>
   `);
+}
+
+function formatTime(value) {
+  if (!value) return "unknown";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "unknown";
+  return date.toLocaleTimeString();
+}
+
+function reviewLabel(state = "new") {
+  const labels = {
+    new: "New",
+    under_review: "Under review",
+    validated: "Validated",
+    needs_more_info: "Needs info",
+    closed: "Closed",
+  };
+  return labels[state] || state;
+}
+
+async function updateReportReview(reportId, state) {
+  const reviewer = activeRole() === "commander" ? "commander-alpha" : "c5isr-manager-alpha";
+  const note = `Set to ${reviewLabel(state)} from COP manager.`;
+  const response = await postJSON("/api/operator-reports/review", {
+    report_id: reportId,
+    state,
+    reviewer_id: reviewer,
+    note,
+  });
+  addActivity(`Report ${response.report.id} marked ${reviewLabel(response.report.review_state)}.`);
+  await refreshDashboard();
 }
 
 function renderAdvisories(advisories) {
@@ -188,7 +238,21 @@ els.commandForm.addEventListener("submit", async (event) => {
   }
 });
 
+els.reportList.addEventListener("click", async (event) => {
+  const button = event.target.closest("[data-review]");
+  if (!button) return;
+  try {
+    await updateReportReview(button.dataset.review, button.dataset.state);
+  } catch (error) {
+    addActivity(error.message);
+  }
+});
+
 els.refreshButton.addEventListener("click", refreshDashboard);
+els.roleSelect.addEventListener("change", async () => {
+  addActivity(`Active role changed to ${activeRole()}.`);
+  await refreshDashboard();
+});
 els.demoButton.addEventListener("click", async () => {
   try {
     const response = await postJSON("/api/sim/demo");

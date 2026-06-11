@@ -36,6 +36,16 @@
             <h1>Common Operational Picture</h1>
           </div>
           <div class="top-actions">
+            <label class="role-picker">
+              Active role
+              <select id="role-select">
+                <option value="c5isr_manager" selected>C5ISR manager</option>
+                <option value="operator">Operator</option>
+                <option value="commander">Commander</option>
+                <option value="auditor">Auditor</option>
+                <option value="system_administrator">System administrator</option>
+              </select>
+            </label>
             <button id="refresh-button" type="button">Refresh</button>
             <button id="demo-button" type="button">Inject Demo</button>
           </div>
@@ -49,6 +59,10 @@
           <article class="metric">
             <span>Reports</span>
             <strong id="metric-reports">0</strong>
+          </article>
+          <article class="metric">
+            <span>Review Queue</span>
+            <strong id="metric-review-queue">0</strong>
           </article>
           <article class="metric">
             <span>Advisories</span>

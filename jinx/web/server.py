@@ -12,6 +12,16 @@ from jinx.api import JINXAPIHandlers
 from jinx.app import JINXApplicationService
 from jinx.core.persistence import SQLiteJINXDatabase
 
+ROLE_PERMISSIONS = {
+    "operator": frozenset({"operator_report:submit", "cop:read"}),
+    "commander": frozenset({"human_command:submit", "cop:read", "operator_report:review"}),
+    "c5isr_manager": frozenset(
+        {"operator_report:submit", "operator_report:review", "cop:read", "sim:inject"}
+    ),
+    "auditor": frozenset({"cop:read", "audit:read"}),
+    "system_administrator": frozenset({"admin:all"}),
+}
+
 
 class JINXHTTPServer(ThreadingHTTPServer):
     def __init__(
@@ -31,60 +41,78 @@ class JINXRequestHandler(SimpleHTTPRequestHandler):
     server: JINXHTTPServer
 
     def do_GET(self) -> None:
-        parsed = urlparse(self.path)
-        if parsed.path == "/api/health":
-            self._send_json({"status": "ok", "service": "jinx"})
-            return
-        if parsed.path == "/api/cop":
-            documents = self.server.database.list_documents("cop_states")
-            latest = documents[-1] if documents else {"id": None, "name": "empty", "tracks": []}
-            self._send_json(latest)
-            return
-        if parsed.path == "/api/operator-reports":
-            self._send_json({"operator_reports": self.server.database.list_documents("operator_reports")})
-            return
-        if parsed.path == "/api/events":
-            self._send_json({"events": self.server.database.list_documents("events")})
-            return
-        if parsed.path == "/api/advisories":
-            self._send_json({"advisories": self.server.database.list_documents("cop_advisories")})
-            return
-        if parsed.path == "/api/human-commands":
-            self._send_json({"human_commands": self.server.database.list_documents("human_commands")})
-            return
-        if parsed.path == "/api/modules":
-            self._send_json(
-                {
-                    "modules": [
-                        {"name": "JINX-Core", "status": "online", "role": "AI advisory processing"},
-                        {"name": "JINX-BRAIN", "status": "online", "role": "Doctrine/SOP knowledge"},
-                        {"name": "JINX-C5ISR", "status": "online", "role": "COP and operator intake"},
-                        {"name": "JINX-NET", "status": "stubbed", "role": "Synthetic MTDL validation"},
-                        {"name": "JINX-INTEL", "status": "stubbed", "role": "Synthetic/authorized fusion"},
-                        {"name": "JINX-SIM", "status": "online", "role": "Synthetic scenario replay"},
-                        {"name": "JINX-BUS", "status": "online", "role": "Policy-enforced routing"},
-                    ]
-                }
-            )
-            return
-        if parsed.path == "/":
-            self.path = "/index.html"
-        super().do_GET()
+        try:
+            parsed = urlparse(self.path)
+            if parsed.path == "/api/health":
+                self._send_json({"status": "ok", "service": "jinx"})
+                return
+            if parsed.path == "/api/cop":
+                self._require_permission("cop:read")
+                documents = self.server.database.list_documents("cop_states")
+                latest = documents[-1] if documents else {"id": None, "name": "empty", "tracks": []}
+                self._send_json(latest)
+                return
+            if parsed.path == "/api/operator-reports":
+                self._require_permission("cop:read")
+                self._send_json({"operator_reports": self.server.database.list_documents("operator_reports")})
+                return
+            if parsed.path == "/api/events":
+                self._require_permission("cop:read")
+                self._send_json({"events": self.server.database.list_documents("events")})
+                return
+            if parsed.path == "/api/advisories":
+                self._require_permission("cop:read")
+                self._send_json({"advisories": self.server.database.list_documents("cop_advisories")})
+                return
+            if parsed.path == "/api/human-commands":
+                self._require_permission("cop:read")
+                self._send_json({"human_commands": self.server.database.list_documents("human_commands")})
+                return
+            if parsed.path == "/api/modules":
+                self._require_permission("cop:read")
+                self._send_json(
+                    {
+                        "modules": [
+                            {"name": "JINX-Core", "status": "online", "role": "AI advisory processing"},
+                            {"name": "JINX-BRAIN", "status": "online", "role": "Doctrine/SOP knowledge"},
+                            {"name": "JINX-C5ISR", "status": "online", "role": "COP and operator intake"},
+                            {"name": "JINX-NET", "status": "stubbed", "role": "Synthetic MTDL validation"},
+                            {"name": "JINX-INTEL", "status": "stubbed", "role": "Synthetic/authorized fusion"},
+                            {"name": "JINX-SIM", "status": "online", "role": "Synthetic scenario replay"},
+                            {"name": "JINX-BUS", "status": "online", "role": "Policy-enforced routing"},
+                        ]
+                    }
+                )
+                return
+            if parsed.path == "/":
+                self.path = "/index.html"
+            super().do_GET()
+        except PermissionError as exc:
+            self._send_json({"error": str(exc)}, status=403)
 
     def do_POST(self) -> None:
         parsed = urlparse(self.path)
         try:
             payload = self._read_json()
             if parsed.path == "/api/operator-reports":
+                self._require_permission("operator_report:submit")
                 self._send_json(self.server.api_handlers.submit_operator_report(payload), status=201)
                 return
             if parsed.path == "/api/human-commands":
+                self._require_permission("human_command:submit")
                 self._send_json(self.server.api_handlers.submit_human_command(payload), status=201)
                 return
+            if parsed.path == "/api/operator-reports/review":
+                self._require_permission("operator_report:review")
+                self._send_json(self.server.api_handlers.review_operator_report(payload), status=200)
+                return
             if parsed.path == "/api/sim/demo":
+                self._require_permission("sim:inject")
                 self._send_json(self._inject_demo_reports(), status=201)
                 return
             self._send_json({"error": "not found"}, status=404)
+        except PermissionError as exc:
+            self._send_json({"error": str(exc)}, status=403)
         except (KeyError, ValueError, json.JSONDecodeError) as exc:
             self._send_json({"error": str(exc)}, status=400)
 
@@ -108,6 +136,16 @@ class JINXRequestHandler(SimpleHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
+
+    def _role(self) -> str:
+        return self.headers.get("X-JINX-Role", "operator")
+
+    def _require_permission(self, permission: str) -> None:
+        role = self._role()
+        permissions = ROLE_PERMISSIONS.get(role, frozenset())
+        if "admin:all" in permissions or permission in permissions:
+            return
+        raise PermissionError(f"role {role} lacks permission {permission}")
 
     def _inject_demo_reports(self) -> dict[str, Any]:
         demo_reports = (

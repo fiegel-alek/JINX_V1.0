@@ -5,7 +5,7 @@ from unittest import TestCase
 from jinx.api import JINXAPIHandlers
 from jinx.app import JINXApplicationService
 from jinx.core.persistence import SQLiteJINXDatabase
-from jinx.web.server import JINXHTTPServer
+from jinx.web.server import JINXHTTPServer, JINXRequestHandler
 
 
 class WebDatabaseFrontendTests(TestCase):
@@ -39,6 +39,34 @@ class WebDatabaseFrontendTests(TestCase):
             self.assertEqual(database.count("events"), 1)
             self.assertEqual(database.count("cop_advisories"), 1)
             self.assertEqual(database.get_document("cop_states", "latest")["tracks"][0]["label"], "operator-alpha")
+            self.assertEqual(database.list_documents("operator_reports")[0]["review_state"], "new")
+
+    def test_api_handler_reviews_operator_report(self) -> None:
+        with TemporaryDirectory() as tmp:
+            database = SQLiteJINXDatabase(Path(tmp) / "jinx.sqlite3")
+            handlers = JINXAPIHandlers(JINXApplicationService(database=database))
+            response = handlers.submit_operator_report(
+                {
+                    "reporter_id": "operator-alpha",
+                    "device_id": "operator-mini-001",
+                    "report_type": "observation",
+                    "summary": "Synthetic COP report from test.",
+                    "location": "synthetic-grid-alpha",
+                }
+            )
+
+            reviewed = handlers.review_operator_report(
+                {
+                    "report_id": response["report_id"],
+                    "state": "validated",
+                    "reviewer_id": "c5isr-manager-alpha",
+                    "note": "Synthetic report validated for test.",
+                }
+            )
+
+            self.assertEqual(reviewed["report"]["review_state"], "validated")
+            self.assertEqual(reviewed["report"]["reviewed_by"], "c5isr-manager-alpha")
+            self.assertEqual(len(reviewed["report"]["review_history"]), 1)
 
     def test_web_server_can_be_constructed_with_static_root_and_database(self) -> None:
         with TemporaryDirectory() as tmp:
@@ -57,8 +85,23 @@ class WebDatabaseFrontendTests(TestCase):
         self.assertIn("JINX COP Manager", (static_root / "index.html").read_text(encoding="utf-8"))
         self.assertIn("/api/cop", (static_root / "app.js").read_text(encoding="utf-8"))
         self.assertIn("/api/sim/demo", (static_root / "app.js").read_text(encoding="utf-8"))
+        self.assertIn("/api/operator-reports/review", (static_root / "app.js").read_text(encoding="utf-8"))
+        self.assertIn("role-select", (static_root / "index.html").read_text(encoding="utf-8"))
         self.assertIn(".map-grid", (static_root / "styles.css").read_text(encoding="utf-8"))
         self.assertIn(".module-grid", (static_root / "styles.css").read_text(encoding="utf-8"))
+        self.assertIn(".review-row", (static_root / "styles.css").read_text(encoding="utf-8"))
+
+    def test_web_request_handler_enforces_role_permissions(self) -> None:
+        handler = JINXRequestHandler.__new__(JINXRequestHandler)
+        handler.headers = {"X-JINX-Role": "operator"}
+
+        handler._require_permission("operator_report:submit")
+        with self.assertRaises(PermissionError):
+            handler._require_permission("operator_report:review")
+
+        handler.headers = {"X-JINX-Role": "c5isr_manager"}
+        handler._require_permission("operator_report:review")
+        handler._require_permission("sim:inject")
 
     def test_api_handler_demo_data_is_available_through_database_shape(self) -> None:
         with TemporaryDirectory() as tmp:

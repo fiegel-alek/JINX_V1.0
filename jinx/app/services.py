@@ -1,6 +1,7 @@
 """High-level application orchestration services."""
 
 from dataclasses import dataclass
+from datetime import UTC, datetime
 
 from jinx.bus import FabricMessage, MessageRouter, RouteResult
 from jinx.common.types import DataMode
@@ -101,8 +102,42 @@ class JINXApplicationService:
             )
         return result
 
+    def review_operator_report(
+        self,
+        report_id: str,
+        state: str,
+        reviewer_id: str,
+        note: str = "",
+    ) -> dict[str, object]:
+        if self.database is None:
+            raise ValueError("database is required for report review")
+        allowed_states = frozenset({"new", "under_review", "validated", "needs_more_info", "closed"})
+        if state not in allowed_states:
+            raise ValueError(f"invalid report review state: {state}")
+        if not reviewer_id:
+            raise ValueError("reviewer_id is required")
+
+        report = self.database.get_document("operator_reports", report_id)
+        history = list(report.get("review_history", []))
+        history.append(
+            {
+                "state": state,
+                "reviewer_id": reviewer_id,
+                "note": note,
+                "timestamp": datetime.now(UTC).isoformat(),
+            }
+        )
+        report["review_state"] = state
+        report["reviewed_by"] = reviewer_id
+        report["review_note"] = note
+        report["review_history"] = history
+        self.database.save_document("operator_reports", report_id, report)
+        return report
+
     def cop_state_document(self) -> dict[str, object]:
         state = self.cop_manager.state()
+        reports = self.database.list_documents("operator_reports") if self.database else ()
+        advisories = self.database.list_documents("cop_advisories") if self.database else ()
         return {
             "id": state.id,
             "name": state.name,
@@ -116,6 +151,14 @@ class JINXApplicationService:
                     "status": track.status,
                     "confidence": track.confidence.value,
                     "last_report_id": track.last_report_id,
+                    "updated_at": track.updated_at.isoformat(),
+                    "report_count": sum(1 for report in reports if report.get("reporter_id") == track.entity.id),
+                    "advisory_count": sum(
+                        1
+                        for advisory in advisories
+                        if track.last_report_id in advisory.get("related_report_ids", [])
+                    ),
+                    "stale": False,
                 }
                 for track in state.tracks
             ],
@@ -143,6 +186,10 @@ class JINXApplicationService:
                 "confidence": report.confidence.value,
                 "delivered": report_route.delivered,
                 "data_mode": report.data_mode.value,
+                "review_state": "new",
+                "reviewed_by": None,
+                "review_note": "",
+                "review_history": [],
             },
         )
         self.database.save_document(

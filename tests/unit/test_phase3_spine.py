@@ -29,6 +29,25 @@ class Phase3SpineTests(TestCase):
         self.assertTrue(access.may(user.id, "operator_report:submit"))
         self.assertFalse(access.may(user.id, "human_command:submit"))
 
+        c5isr_manager = User(
+            username="c5isr.manager",
+            display_name="C5ISR Manager",
+            roles=frozenset({"c5isr_manager"}),
+        )
+        access.register_user(c5isr_manager)
+        self.assertTrue(access.may(c5isr_manager.id, "operator_report:review"))
+        self.assertTrue(access.may(c5isr_manager.id, "sim:inject"))
+        self.assertFalse(access.may(c5isr_manager.id, "human_command:submit"))
+
+        commander = User(
+            username="commander.alpha",
+            display_name="Commander Alpha",
+            roles=frozenset({"commander"}),
+        )
+        access.register_user(commander)
+        self.assertTrue(access.may(commander.id, "human_command:submit"))
+        self.assertTrue(access.may(commander.id, "operator_report:review"))
+
     def test_config_rejects_real_adapters_while_simulation_first(self) -> None:
         with TemporaryDirectory() as tmp:
             with self.assertRaises(ValueError):

@@ -13,8 +13,24 @@ def build_default_access_control() -> AccessControl:
         ),
         Role(
             name="commander",
-            permissions=frozenset({"human_command:submit", "cop:read", "advisory:review"}),
+            permissions=frozenset(
+                {"human_command:submit", "cop:read", "advisory:review", "operator_report:review"}
+            ),
             description="Provides human command input and reviews advisories.",
+        ),
+        Role(
+            name="c5isr_manager",
+            permissions=frozenset(
+                {
+                    "operator_report:review",
+                    "operator_report:submit",
+                    "cop:read",
+                    "cop:write",
+                    "advisory:review",
+                    "sim:inject",
+                }
+            ),
+            description="Manages C5ISR report review and COP state.",
         ),
         Role(
             name="operator",

@@ -50,6 +50,15 @@ class JINXAPIHandlers:
         result = self.service.submit_human_command(command)
         return {"command_id": command.id, "delivered": result.delivered}
 
+    def review_operator_report(self, payload: dict[str, str]) -> dict[str, object]:
+        report = self.service.review_operator_report(
+            report_id=payload["report_id"],
+            state=payload["state"],
+            reviewer_id=payload["reviewer_id"],
+            note=payload.get("note", ""),
+        )
+        return {"report": report}
+
     @staticmethod
     def _synthetic_confidence() -> ConfidenceScore:
         return ConfidenceScore(
