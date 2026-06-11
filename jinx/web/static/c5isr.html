@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>JINX-C5ISR COP Manager</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <aside class="nav-rail" aria-label="JINX-C5ISR">
+        <div class="brand">
+          <span class="brand-mark">JX</span>
+          <div>
+            <strong>JINX-C5ISR</strong>
+            <small>COP Manager</small>
+          </div>
+        </div>
+        <nav>
+          <a href="#cop">COP</a>
+          <a href="#reports">Reports</a>
+          <a href="#review">Review</a>
+          <a href="#brain">BRAIN</a>
+        </nav>
+        <div class="rail-note">
+          <span id="api-status" class="status-dot"></span>
+          <span id="api-status-text">Checking API</span>
+        </div>
+      </aside>
+
+      <section class="main">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">C5ISR package</p>
+            <h1>Common Operational Picture</h1>
+          </div>
+          <div class="top-actions">
+            <label class="role-picker">
+              Active role
+              <select id="role-select">
+                <option value="c5isr_manager" selected>C5ISR manager</option>
+                <option value="operator">Operator</option>
+                <option value="commander">Commander</option>
+                <option value="auditor">Auditor</option>
+              </select>
+            </label>
+            <button id="refresh-button" type="button">Refresh</button>
+            <button id="mission-button" type="button">Load Synthetic Mission</button>
+          </div>
+        </header>
+
+        <section class="metrics" aria-label="C5ISR metrics">
+          <article class="metric">
+            <span>Tracks</span>
+            <strong id="metric-tracks">0</strong>
+          </article>
+          <article class="metric">
+            <span>Reports</span>
+            <strong id="metric-reports">0</strong>
+          </article>
+          <article class="metric">
+            <span>Review Queue</span>
+            <strong id="metric-review-queue">0</strong>
+          </article>
+          <article class="metric">
+            <span>Advisories</span>
+            <strong id="metric-advisories">0</strong>
+          </article>
+        </section>
+
+        <section class="dashboard" id="cop">
+          <section class="map-card" aria-label="COP map">
+            <div class="section-head">
+              <h2>COP Map</h2>
+              <span id="cop-name">empty</span>
+            </div>
+            <div class="map-grid" id="cop-map">
+              <div class="map-crosshair"></div>
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="section-head">
+              <h2>Tracks</h2>
+              <span id="track-count">0 active</span>
+            </div>
+            <div id="track-list" class="list empty">No tracks loaded</div>
+          </section>
+        </section>
+
+        <section class="operations" id="reports">
+          <section class="panel">
+            <div class="section-head">
+              <h2>Operator Report</h2>
+              <span>Operator Mini</span>
+            </div>
+            <form id="report-form" class="form">
+              <div class="form-grid">
+                <label>
+                  Reporter
+                  <input name="reporter_id" value="operator-alpha" required />
+                </label>
+                <label>
+                  Device
+                  <input name="device_id" value="operator-mini-001" required />
+                </label>
+                <label>
+                  Type
+                  <select name="report_type">
+                    <option value="observation">Observation</option>
+                    <option value="communications_check">Communications check</option>
+                    <option value="position_update">Position update</option>
+                    <option value="status_update">Status update</option>
+                    <option value="medical">Medical</option>
+                    <option value="logistics">Logistics</option>
+                    <option value="hazard">Hazard</option>
+                  </select>
+                </label>
+                <label>
+                  Location
+                  <input name="location" value="synthetic-grid-alpha" required />
+                </label>
+              </div>
+              <label>
+                Summary
+                <textarea name="summary" required>Synthetic operator observation from C5ISR interface.</textarea>
+              </label>
+              <button type="submit">Submit Report</button>
+            </form>
+          </section>
+
+          <section class="panel">
+            <div class="section-head">
+              <h2>Mission Context</h2>
+              <span id="mission-id">not loaded</span>
+            </div>
+            <div id="mission-context" class="list empty">No mission context loaded</div>
+          </section>
+        </section>
+
+        <section class="data-grid" id="review">
+          <section class="panel">
+            <div class="section-head">
+              <h2>C5ISR Review Center</h2>
+              <span id="review-center-count">0</span>
+            </div>
+            <div id="review-center-list" class="list empty">No review items</div>
+          </section>
+          <section class="panel">
+            <div class="section-head">
+              <h2>Report Inbox</h2>
+              <span id="report-count">0</span>
+            </div>
+            <div id="report-list" class="list empty">No reports</div>
+          </section>
+          <section class="panel">
+            <div class="section-head">
+              <h2>Mission Impact Packets</h2>
+              <span id="mission-impact-count">0</span>
+            </div>
+            <div id="mission-impact-list" class="list empty">No mission impacts</div>
+          </section>
+        </section>
+
+        <section class="data-grid">
+          <section class="panel">
+            <div class="section-head">
+              <h2>Advisories</h2>
+              <span id="advisory-count">0</span>
+            </div>
+            <div id="advisory-list" class="list empty">No advisories</div>
+          </section>
+          <section class="panel">
+            <div class="section-head">
+              <h2>Core Conflict Packets</h2>
+              <span id="conflict-count">0</span>
+            </div>
+            <div id="conflict-list" class="list empty">No conflicts</div>
+          </section>
+          <section class="panel">
+            <div class="section-head">
+              <h2>Human Resolution Paths</h2>
+              <span id="recommendation-count">0</span>
+            </div>
+            <div id="recommendation-list" class="list empty">No recommendations</div>
+          </section>
+        </section>
+
+        <section class="data-grid two" id="brain">
+          <section class="panel">
+            <div class="section-head">
+              <h2>JINX-BRAIN Chat</h2>
+              <span id="brain-chat-count">0</span>
+            </div>
+            <form id="brain-chat-form" class="form">
+              <label>
+                Question
+                <textarea name="text" required>What should a human review before changing Route Alpha assumptions?</textarea>
+              </label>
+              <input type="hidden" name="user_id" value="operator-alpha" />
+              <input type="hidden" name="use_core_reachback" value="true" />
+              <button type="submit">Ask BRAIN</button>
+            </form>
+            <div id="brain-chat-list" class="list empty">No Brain chat yet</div>
+          </section>
+          <section class="panel">
+            <div class="section-head">
+              <h2>Timeline / Guardrails</h2>
+              <span>Advisory only</span>
+            </div>
+            <div id="timeline-list" class="list empty">No timeline entries</div>
+            <ul class="guardrails">
+              <li>Core does not originate command authority.</li>
+              <li>C5ISR outputs remain advisory and human-reviewed.</li>
+              <li>Only synthetic, mock, open, or authorized data is supported.</li>
+            </ul>
+          </section>
+        </section>
+      </section>
+    </main>
+    <script src="/c5isr_app.js"></script>
+  </body>
+</html>

@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>JINX-NET Manager</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <aside class="nav-rail" aria-label="JINX-NET">
+        <div class="brand">
+          <span class="brand-mark">JN</span>
+          <div>
+            <strong>JINX-NET</strong>
+            <small>Network Manager</small>
+          </div>
+        </div>
+        <nav>
+          <a href="#plans">Plans</a>
+          <a href="#issues">Issues</a>
+          <a href="#brain">BRAIN</a>
+        </nav>
+        <div class="rail-note">
+          <span id="api-status" class="status-dot"></span>
+          <span id="api-status-text">Checking API</span>
+        </div>
+      </aside>
+
+      <section class="main">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">NET package</p>
+            <h1>Network Manager</h1>
+          </div>
+          <div class="top-actions">
+            <label class="role-picker">
+              Active role
+              <select id="role-select">
+                <option value="network_manager" selected>Network manager</option>
+                <option value="auditor">Auditor</option>
+                <option value="system_administrator">System administrator</option>
+              </select>
+            </label>
+            <button id="refresh-button" type="button">Refresh</button>
+          </div>
+        </header>
+
+        <section class="metrics" aria-label="NET metrics">
+          <article class="metric">
+            <span>Plans</span>
+            <strong id="metric-plans">0</strong>
+          </article>
+          <article class="metric">
+            <span>Issues</span>
+            <strong id="metric-issues">0</strong>
+          </article>
+          <article class="metric">
+            <span>Validation Runs</span>
+            <strong id="metric-validations">0</strong>
+          </article>
+          <article class="metric">
+            <span>Advisories</span>
+            <strong id="metric-advisories">0</strong>
+          </article>
+        </section>
+
+        <section class="operations" id="plans">
+          <section class="panel">
+            <div class="section-head">
+              <h2>Network Plan Builder</h2>
+              <span>Synthetic</span>
+            </div>
+            <form id="net-plan-form" class="form">
+              <div class="form-grid">
+                <label>
+                  Plan
+                  <input name="name" value="Synthetic Link Plan Alpha" required />
+                </label>
+                <label>
+                  Nodes
+                  <input name="node_ids" value="node-alpha,node-bravo,node-charlie" required />
+                </label>
+                <label>
+                  Timeslots
+                  <input name="timeslots" value="slot-01:node-alpha,slot-01:node-bravo,slot-02:node-charlie" required />
+                </label>
+                <label>
+                  LOS Status
+                  <select name="los_status">
+                    <option value="degraded">Degraded</option>
+                    <option value="blocked">Blocked</option>
+                    <option value="clear">Clear</option>
+                    <option value="unknown">Unknown</option>
+                  </select>
+                </label>
+              </div>
+              <input type="hidden" name="los_links" value="node-alpha>node-bravo,node-bravo>node-charlie" />
+              <input type="hidden" name="los_rationale" value="Synthetic terrain and relay assumptions require network-manager review." />
+              <button type="submit">Validate Plan</button>
+            </form>
+          </section>
+
+          <section class="panel">
+            <div class="section-head">
+              <h2>Parser Stub</h2>
+              <span>OPTASKLINK/NDD style</span>
+            </div>
+            <form id="net-parser-form" class="form">
+              <label>
+                Synthetic Text
+                <textarea name="plan_text" required>name: Synthetic Parsed Plan
+node: node-alpha, Node Alpha, terminal
+node: node-bravo, Node Bravo, terminal
+slot: slot-01, node-alpha, epoch-alpha
+slot: slot-01, node-bravo, epoch-alpha
+los: node-alpha, node-bravo, degraded, Synthetic relay assumption.</textarea>
+              </label>
+              <input type="hidden" name="source_format" value="synthetic_optasklink_stub" />
+              <button type="submit">Parse And Validate</button>
+            </form>
+          </section>
+        </section>
+
+        <section class="data-grid" id="issues">
+          <section class="panel">
+            <div class="section-head">
+              <h2>Plans</h2>
+              <span id="net-plan-count">0</span>
+            </div>
+            <div id="net-plan-list" class="list empty">No NET plans</div>
+          </section>
+          <section class="panel">
+            <div class="section-head">
+              <h2>Issues</h2>
+              <span id="net-issue-count">0</span>
+            </div>
+            <div id="net-issue-list" class="list empty">No NET issues</div>
+          </section>
+          <section class="panel">
+            <div class="section-head">
+              <h2>Validation Runs</h2>
+              <span id="net-validation-count">0</span>
+            </div>
+            <div id="net-validation-list" class="list empty">No validation runs</div>
+          </section>
+        </section>
+
+        <section class="data-grid two" id="brain">
+          <section class="panel">
+            <div class="section-head">
+              <h2>NET Advisories</h2>
+              <span id="net-advisory-count">0</span>
+            </div>
+            <div id="net-advisory-list" class="list empty">No NET advisories</div>
+          </section>
+          <section class="panel">
+            <div class="section-head">
+              <h2>JINX-BRAIN Chat</h2>
+              <span id="brain-chat-count">0</span>
+            </div>
+            <form id="brain-chat-form" class="form">
+              <label>
+                Question
+                <textarea name="text" required>What should a network manager review for a synthetic timeslot conflict and degraded LOS path?</textarea>
+              </label>
+              <input type="hidden" name="user_id" value="net-manager-alpha" />
+              <input type="hidden" name="use_core_reachback" value="true" />
+              <button type="submit">Ask BRAIN</button>
+            </form>
+            <div id="brain-chat-list" class="list empty">No Brain chat yet</div>
+          </section>
+        </section>
+      </section>
+    </main>
+    <script src="/net_app.js"></script>
+  </body>
+</html>

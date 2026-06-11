@@ -55,6 +55,44 @@ ROLE_PERMISSIONS = {
     "system_administrator": frozenset({"admin:all"}),
 }
 
+PACKAGE_PROFILES = {
+    "full": {
+        "label": "Full JINX Package",
+        "modules": ("core", "brain", "c5isr", "net", "intel", "sim", "bus"),
+        "apps": ("/apps/ops", "/apps/c5isr", "/apps/net"),
+    },
+    "c5isr": {
+        "label": "JINX-C5ISR Package",
+        "modules": ("core", "brain", "c5isr", "sim", "bus"),
+        "apps": ("/apps/c5isr",),
+    },
+    "net": {
+        "label": "JINX-NET Package",
+        "modules": ("core", "brain", "net", "sim", "bus"),
+        "apps": ("/apps/net",),
+    },
+}
+
+PACKAGE_PERMISSION_PREFIXES = {
+    "full": (),
+    "c5isr": ("net:",),
+    "net": ("operator_report:", "cop:", "mission:", "intel:", "isr:", "human_command:"),
+}
+
+NET_REDACTIONS = {
+    "JINX-NET": "communications-domain",
+    "jinx-net": "communications-domain",
+    "network manager": "communications-domain reviewer",
+    "Network manager": "Communications-domain reviewer",
+    "network-domain": "communications-domain",
+    "network": "communications-domain",
+    "Network": "Communications-domain",
+    "MTDL": "communications",
+    "TDMA": "timing",
+    "timeslot": "timing allocation",
+    "LOS": "communications path",
+}
+
 
 class JINXHTTPServer(ThreadingHTTPServer):
     def __init__(
@@ -76,8 +114,17 @@ class JINXRequestHandler(SimpleHTTPRequestHandler):
     def do_GET(self) -> None:
         try:
             parsed = urlparse(self.path)
+            app_path = self._app_path(parsed.path)
+            if app_path is not None:
+                self.path = app_path
+                super().do_GET()
+                return
             if parsed.path == "/api/health":
                 self._send_json({"status": "ok", "service": "jinx"})
+                return
+            if parsed.path == "/api/entitlements":
+                package = self._package()
+                self._send_json({"package": package, **PACKAGE_PROFILES[package]})
                 return
             if parsed.path == "/api/cop":
                 self._require_permission("cop:read")
@@ -348,6 +395,7 @@ class JINXRequestHandler(SimpleHTTPRequestHandler):
         return {str(key): str(value) for key, value in payload.items()}
 
     def _send_json(self, payload: dict[str, Any], status: int = 200) -> None:
+        payload = self._redact_payload_for_package(payload)
         body = json.dumps(payload, sort_keys=True).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
@@ -358,12 +406,57 @@ class JINXRequestHandler(SimpleHTTPRequestHandler):
     def _role(self) -> str:
         return self.headers.get("X-JINX-Role", "operator")
 
+    def _package(self) -> str:
+        package = self.headers.get("X-JINX-Package", "full")
+        return package if package in PACKAGE_PROFILES else "full"
+
     def _require_permission(self, permission: str) -> None:
         role = self._role()
         permissions = ROLE_PERMISSIONS.get(role, frozenset())
         if "admin:all" in permissions or permission in permissions:
-            return
+            if self._package_allows(permission):
+                return
+            raise PermissionError(f"package {self._package()} lacks entitlement for {permission}")
         raise PermissionError(f"role {role} lacks permission {permission}")
+
+    def _package_allows(self, permission: str) -> bool:
+        denied_prefixes = PACKAGE_PERMISSION_PREFIXES[self._package()]
+        return not any(permission.startswith(prefix) for prefix in denied_prefixes)
+
+    @staticmethod
+    def _app_path(path: str) -> str | None:
+        mapping = {
+            "/apps/ops": "/index.html",
+            "/ops": "/index.html",
+            "/apps/c5isr": "/c5isr.html",
+            "/c5isr": "/c5isr.html",
+            "/apps/net": "/net.html",
+            "/net": "/net.html",
+        }
+        return mapping.get(path)
+
+    def _redact_payload_for_package(self, payload: Any) -> Any:
+        if self._package() != "c5isr":
+            return payload
+        return self._redact_net_terms(payload)
+
+    def _redact_net_terms(self, value: Any) -> Any:
+        if isinstance(value, dict):
+            return {
+                key: self._redact_net_terms(item)
+                for key, item in value.items()
+                if not str(key).startswith("network_") and str(key) not in {"net", "net_detail"}
+            }
+        if isinstance(value, list):
+            return [self._redact_net_terms(item) for item in value]
+        if isinstance(value, tuple):
+            return tuple(self._redact_net_terms(item) for item in value)
+        if isinstance(value, str):
+            redacted = value
+            for needle, replacement in NET_REDACTIONS.items():
+                redacted = redacted.replace(needle, replacement)
+            return redacted
+        return value
 
     def _inject_demo_reports(self) -> dict[str, Any]:
         mission_response = self.server.api_handlers.submit_mission_context(

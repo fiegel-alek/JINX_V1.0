@@ -241,6 +241,30 @@ class WebDatabaseFrontendTests(TestCase):
         self.assertIn(".module-grid", (static_root / "styles.css").read_text(encoding="utf-8"))
         self.assertIn(".review-row", (static_root / "styles.css").read_text(encoding="utf-8"))
 
+    def test_package_specific_frontend_surfaces_are_separated(self) -> None:
+        static_root = Path("jinx/web/static")
+        c5isr_html = (static_root / "c5isr.html").read_text(encoding="utf-8")
+        c5isr_js = (static_root / "c5isr_app.js").read_text(encoding="utf-8")
+        net_html = (static_root / "net.html").read_text(encoding="utf-8")
+        net_js = (static_root / "net_app.js").read_text(encoding="utf-8")
+
+        self.assertIn("Common Operational Picture", c5isr_html)
+        self.assertIn("/api/cop", c5isr_js)
+        self.assertIn("/api/operator-reports", c5isr_js)
+        self.assertNotIn("/api/net", c5isr_js)
+        self.assertNotIn("JINX-NET", c5isr_html + c5isr_js)
+        self.assertNotIn("NET Issues", c5isr_html + c5isr_js)
+        self.assertNotIn("NET Plans", c5isr_html + c5isr_js)
+
+        self.assertIn("JINX-NET Manager", net_html)
+        self.assertIn("/api/entitlements", net_js)
+        self.assertIn("/api/net/plans", net_js)
+        self.assertIn("/api/net/issues", net_js)
+        self.assertNotIn("/api/operator-reports", net_js)
+        self.assertNotIn("/api/cop", net_js)
+        self.assertNotIn("Common Operational Picture", net_html + net_js)
+        self.assertNotIn("Operator Report", net_html + net_js)
+
     def test_web_request_handler_enforces_role_permissions(self) -> None:
         handler = JINXRequestHandler.__new__(JINXRequestHandler)
         handler.headers = {"X-JINX-Role": "operator"}
@@ -260,6 +284,51 @@ class WebDatabaseFrontendTests(TestCase):
         handler._require_permission("net:read")
         handler._require_permission("net:submit")
         handler._require_permission("net:review")
+
+    def test_web_request_handler_enforces_package_entitlements(self) -> None:
+        handler = JINXRequestHandler.__new__(JINXRequestHandler)
+
+        handler.headers = {"X-JINX-Role": "c5isr_manager", "X-JINX-Package": "c5isr"}
+        handler._require_permission("operator_report:submit")
+        handler._require_permission("cop:read")
+        with self.assertRaises(PermissionError):
+            handler._require_permission("net:read")
+
+        handler.headers = {"X-JINX-Role": "network_manager", "X-JINX-Package": "net"}
+        handler._require_permission("net:read")
+        handler._require_permission("net:submit")
+        with self.assertRaises(PermissionError):
+            handler._require_permission("operator_report:submit")
+        with self.assertRaises(PermissionError):
+            handler._require_permission("cop:read")
+
+    def test_web_request_handler_maps_package_app_routes(self) -> None:
+        self.assertEqual(JINXRequestHandler._app_path("/apps/ops"), "/index.html")
+        self.assertEqual(JINXRequestHandler._app_path("/ops"), "/index.html")
+        self.assertEqual(JINXRequestHandler._app_path("/apps/c5isr"), "/c5isr.html")
+        self.assertEqual(JINXRequestHandler._app_path("/c5isr"), "/c5isr.html")
+        self.assertEqual(JINXRequestHandler._app_path("/apps/net"), "/net.html")
+        self.assertEqual(JINXRequestHandler._app_path("/net"), "/net.html")
+        self.assertIsNone(JINXRequestHandler._app_path("/unknown"))
+
+    def test_c5isr_package_redacts_net_specific_payload_details(self) -> None:
+        handler = JINXRequestHandler.__new__(JINXRequestHandler)
+        handler.headers = {"X-JINX-Package": "c5isr"}
+
+        redacted = handler._redact_payload_for_package(
+            {
+                "summary": "JINX-NET network manager review for TDMA timeslot LOS issue.",
+                "network_plan_id": "net-plan-1",
+                "nested": {"net_detail": "MTDL conflict", "label": "Network issue"},
+            }
+        )
+
+        self.assertNotIn("network_plan_id", redacted)
+        self.assertNotIn("net_detail", redacted["nested"])
+        self.assertNotIn("JINX-NET", str(redacted))
+        self.assertNotIn("network manager", str(redacted))
+        self.assertNotIn("TDMA", str(redacted))
+        self.assertIn("communications-domain", redacted["summary"])
 
     def test_api_handler_demo_data_is_available_through_database_shape(self) -> None:
         with TemporaryDirectory() as tmp:
