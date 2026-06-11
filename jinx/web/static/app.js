@@ -17,6 +17,8 @@ const els = {
   timelineList: document.querySelector("#timeline-list"),
   opsConsoleList: document.querySelector("#ops-console-list"),
   operatorLoopList: document.querySelector("#operator-loop-list"),
+  fabricMessageList: document.querySelector("#fabric-message-list"),
+  fabricDeadLetterList: document.querySelector("#fabric-dead-letter-list"),
   coreContextList: document.querySelector("#core-context-list"),
   conflictList: document.querySelector("#conflict-list"),
   recommendationList: document.querySelector("#recommendation-list"),
@@ -521,6 +523,31 @@ function renderOperatorLoop(packet) {
   `);
 }
 
+function renderFabric(fabric) {
+  const messages = fabric.messages || [];
+  const deadLetters = fabric.dead_letters || [];
+  const counts = fabric.counts || {};
+  document.querySelector("#fabric-message-count").textContent = `${messages.length} total`;
+  document.querySelector("#fabric-dead-letter-count").textContent = deadLetters.length;
+  renderList(els.fabricMessageList, messages.slice(-12).reverse(), "No fabric messages", (message) => `
+    <article class="item ops">
+      <strong>${escapeHTML(message.status)} · ${escapeHTML(message.topic)}</strong>
+      <span>${escapeHTML(message.source_module)} → ${escapeHTML(message.destination)} · ${escapeHTML(message.payload_schema)}</span>
+      <span>policy: ${escapeHTML(message.policy_reason)} · confidence ${escapeHTML(message.confidence ?? "n/a")}</span>
+      <span>redactions: ${escapeHTML((message.redacted_fields || []).join(", ") || "none")} · simulation ${escapeHTML(message.simulation_flag)}</span>
+    </article>
+  `);
+  renderList(els.fabricDeadLetterList, deadLetters.slice(-8).reverse(), "No dead letters", (message) => `
+    <article class="item conflict">
+      <strong>${escapeHTML(message.topic)} · denied</strong>
+      <span>${escapeHTML(message.source_module)} → ${escapeHTML(message.destination)} · ${escapeHTML(message.payload_schema)}</span>
+      <span>${escapeHTML(message.policy_reason)}</span>
+    </article>
+  `);
+  document.querySelector("#fabric-message-count").textContent =
+    `${messages.length} total · ${counts.delivered || 0} delivered · ${counts.redacted || 0} redacted`;
+}
+
 function renderCoreContext(context) {
   document.querySelector("#core-context-count").textContent = (context.provenance_refs || []).length;
   renderList(els.coreContextList, [context], "No bounded context", (record) => `
@@ -614,6 +641,7 @@ async function refreshDashboard() {
       events,
       opsConsole,
       operatorLoop,
+      fabric,
       coreContext,
       conflicts,
       recommendations,
@@ -650,6 +678,7 @@ async function refreshDashboard() {
       getJSON("/api/events"),
       getJSON("/api/core/ops-console"),
       getJSON("/api/core/operator-loop"),
+      getJSON("/api/core/fabric"),
       getJSON("/api/core/context"),
       getJSON("/api/conflicts"),
       getJSON("/api/recommendations"),
@@ -686,6 +715,7 @@ async function refreshDashboard() {
     renderEvents(events.events || []);
     renderOpsConsole(opsConsole);
     renderOperatorLoop(operatorLoop.operator_loop || {});
+    renderFabric(fabric.fabric || {});
     renderCoreContext(coreContext.core_context || {});
     renderConflicts(conflicts.conflicts || []);
     renderRecommendations(recommendations.recommendations || []);

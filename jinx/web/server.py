@@ -196,6 +196,10 @@ class JINXRequestHandler(SimpleHTTPRequestHandler):
                 self._require_permission("ops:read")
                 self._send_json(self.server.api_handlers.service.operator_loop_document())
                 return
+            if parsed.path == "/api/core/fabric":
+                self._require_permission("ops:read")
+                self._send_json(self.server.api_handlers.service.fabric_monitor_document())
+                return
             if parsed.path == "/api/core/policy-decisions":
                 self._require_permission("audit:read")
                 self._send_json(self.server.api_handlers.service.policy_decisions_document())

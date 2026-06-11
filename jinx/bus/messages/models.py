@@ -21,6 +21,8 @@ class FabricMessage:
     payload: Mapping[str, object]
     data_mode: DataMode
     confidence: ConfidenceScore | None = None
+    topic: str = ""
+    retry_count: int = 0
     simulation_flag: bool = True
     id: str = field(default_factory=lambda: f"msg-{uuid4()}")
     timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
@@ -34,5 +36,17 @@ class FabricMessage:
             raise ValueError("message payload_schema is required")
         if not self.schema_version:
             raise ValueError("message schema_version is required")
+        if self.retry_count < 0:
+            raise ValueError("message retry_count must be non-negative")
         if self.data_mode in {DataMode.SYNTHETIC, DataMode.MOCK} and not self.simulation_flag:
             raise ValueError("synthetic and mock messages must set simulation_flag")
+        if not self.topic:
+            object.__setattr__(
+                self,
+                "topic",
+                f"{self.source_module.replace('jinx-', '')}.{self.payload_schema.removesuffix('.v1')}",
+            )
+
+    @property
+    def message_id(self) -> str:
+        return self.id

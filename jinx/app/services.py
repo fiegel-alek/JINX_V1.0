@@ -615,6 +615,33 @@ class JINXApplicationService:
     def network_advisories_document(self) -> dict[str, object]:
         return {"network_advisories": self.database.list_documents("network_advisories") if self.database else []}
 
+    def fabric_monitor_document(self) -> dict[str, object]:
+        self._sync_fabric_ledger()
+        if self.database is None:
+            messages = [record.to_document() for record in self.router.route_records()]
+            dead_letters = [record for record in messages if record["status"] == "denied"]
+        else:
+            messages = list(self.database.list_documents("fabric_messages"))
+            dead_letters = list(self.database.list_documents("fabric_dead_letters"))
+        counts = {
+            "delivered": sum(1 for message in messages if message.get("status") == "delivered"),
+            "redacted": sum(1 for message in messages if message.get("status") == "redacted"),
+            "denied": sum(1 for message in messages if message.get("status") == "denied"),
+            "dead_letters": len(dead_letters),
+        }
+        topics = sorted({str(message.get("topic", "")) for message in messages if message.get("topic")})
+        return {
+            "fabric": {
+                "status": "monitoring",
+                "mode": "policy_enforced_simulation",
+                "authority": "advisory_only_human_in_the_loop",
+                "messages": messages,
+                "dead_letters": dead_letters,
+                "counts": counts,
+                "topics": topics,
+            }
+        }
+
     def analysis_runs_document(self) -> dict[str, object]:
         return {"analysis_runs": self.database.list_documents("analysis_runs") if self.database else []}
 
@@ -682,6 +709,7 @@ class JINXApplicationService:
         modules = registry.licensed_modules()
         delivered = self.router.delivered_messages()
         dead_letters = self.router.dead_letters()
+        route_records = self.router.route_records()
         return {
             "modules": [
                 {
@@ -699,9 +727,13 @@ class JINXApplicationService:
                     "id": message.id,
                     "source_module": message.source_module,
                     "destination": message.destination,
+                    "topic": message.topic,
                     "payload_schema": message.payload_schema,
                     "license_scope": message.license_scope,
-                    "status": "delivered",
+                    "status": next(
+                        (record.status for record in route_records if record.message.id == message.id),
+                        "delivered",
+                    ),
                 }
                 for message in delivered
             ],
@@ -710,6 +742,7 @@ class JINXApplicationService:
                     "id": message.id,
                     "source_module": message.source_module,
                     "destination": message.destination,
+                    "topic": message.topic,
                     "payload_schema": message.payload_schema,
                     "license_scope": message.license_scope,
                     "status": "denied",
@@ -719,6 +752,7 @@ class JINXApplicationService:
         }
 
     def core_ops_console_document(self) -> dict[str, object]:
+        self._sync_fabric_ledger()
         if self.database is None:
             counts = {}
         else:
@@ -736,8 +770,11 @@ class JINXApplicationService:
                 "network_plans": self.database.count("network_plans"),
                 "network_issues": self.database.count("network_issues"),
                 "simulation_runs": self.database.count("simulation_runs"),
+                "fabric_messages": self.database.count("fabric_messages"),
+                "fabric_dead_letters": self.database.count("fabric_dead_letters"),
             }
         boundary = self.module_boundary_document()
+        fabric = self.fabric_monitor_document()["fabric"]
         return {
             "mode": "simulation_first",
             "live_adapters": "disabled",
@@ -753,6 +790,7 @@ class JINXApplicationService:
             "licensed_modules": [module["name"] for module in boundary["modules"]],
             "delivered_routes": len(boundary["routes"]),
             "denied_routes": len(boundary["dead_letters"]),
+            "fabric_counts": fabric["counts"],
             "audit_records": len(self.audit_document()["audit_records"]),
             "provenance_records": len(self.provenance_document()["provenance"]),
             "active_operator_loop": self.operator_loop_document()["operator_loop"],
@@ -906,6 +944,15 @@ class JINXApplicationService:
                         "message_id": record.metadata.get("message_id", ""),
                     },
                 )
+
+    def _sync_fabric_ledger(self) -> None:
+        if self.database is None:
+            return
+        for record in self.router.route_records():
+            document = record.to_document()
+            self.database.save_document("fabric_messages", document["message_id"], document)
+            if document["status"] == "denied":
+                self.database.save_document("fabric_dead_letters", document["message_id"], document)
 
     def _sync_provenance_ledger(self) -> None:
         if self.database is None:
