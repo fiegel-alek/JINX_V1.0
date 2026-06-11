@@ -30,6 +30,7 @@ def build_default_access_control() -> AccessControl:
                     "intel:submit",
                     "isr:read",
                     "isr:write",
+                    "mission:write",
                     "sim:inject",
                 }
             ),

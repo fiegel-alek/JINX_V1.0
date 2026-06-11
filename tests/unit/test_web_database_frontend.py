@@ -72,12 +72,20 @@ class WebDatabaseFrontendTests(TestCase):
         with TemporaryDirectory() as tmp:
             database = SQLiteJINXDatabase(Path(tmp) / "jinx.sqlite3")
             handlers = JINXAPIHandlers(JINXApplicationService(database=database))
+            handlers.submit_mission_context(
+                {
+                    "mission_statement": "Synthetic mission monitors Route Alpha.",
+                    "commander_intent": "Preserve human review.",
+                    "route": "Route Alpha",
+                    "named_area": "Area Alpha",
+                }
+            )
             handlers.submit_operator_report(
                 {
                     "reporter_id": "operator-alpha",
                     "device_id": "operator-mini-001",
                     "report_type": "hazard",
-                    "summary": "Synthetic hazard report from operator.",
+                    "summary": "Synthetic hazard report from operator near Route Alpha.",
                     "location": "grid-alpha",
                 }
             )
@@ -108,6 +116,30 @@ class WebDatabaseFrontendTests(TestCase):
             self.assertEqual(database.count("isr_feeds"), 1)
             self.assertGreaterEqual(database.count("conflicts"), 1)
             self.assertGreaterEqual(database.count("recommendations"), 1)
+            self.assertEqual(database.count("mission_contexts"), 2)
+            self.assertGreaterEqual(database.count("mission_impacts"), 1)
+            self.assertGreaterEqual(database.count("timeline"), 1)
+
+    def test_api_handler_validates_cop_track(self) -> None:
+        with TemporaryDirectory() as tmp:
+            database = SQLiteJINXDatabase(Path(tmp) / "jinx.sqlite3")
+            handlers = JINXAPIHandlers(JINXApplicationService(database=database))
+            handlers.submit_operator_report(
+                {
+                    "reporter_id": "operator-alpha",
+                    "device_id": "operator-mini-001",
+                    "report_type": "position_update",
+                    "summary": "Synthetic position update.",
+                    "location": "grid-alpha",
+                }
+            )
+
+            response = handlers.validate_cop_track(
+                {"entity_id": "operator-alpha", "reviewer_id": "c5isr-manager-alpha"}
+            )
+
+            self.assertEqual(response["track"]["lifecycle"], "human_validated")
+            self.assertTrue(database.get_document("cop_states", "latest")["tracks"][0]["human_validated"])
 
     def test_web_server_can_be_constructed_with_static_root_and_database(self) -> None:
         with TemporaryDirectory() as tmp:
@@ -129,7 +161,13 @@ class WebDatabaseFrontendTests(TestCase):
         self.assertIn("/api/operator-reports/review", (static_root / "app.js").read_text(encoding="utf-8"))
         self.assertIn("/api/intelligence-summaries", (static_root / "app.js").read_text(encoding="utf-8"))
         self.assertIn("/api/isr-feeds", (static_root / "app.js").read_text(encoding="utf-8"))
+        self.assertIn("/api/mission-context", (static_root / "app.js").read_text(encoding="utf-8"))
+        self.assertIn("/api/review-center", (static_root / "app.js").read_text(encoding="utf-8"))
+        self.assertIn("/api/mission-impacts", (static_root / "app.js").read_text(encoding="utf-8"))
+        self.assertIn("/api/sim/c5isr-scenarios", (static_root / "app.js").read_text(encoding="utf-8"))
         self.assertIn("role-select", (static_root / "index.html").read_text(encoding="utf-8"))
+        self.assertIn("Mission Context", (static_root / "index.html").read_text(encoding="utf-8"))
+        self.assertIn("C5ISR Review Center", (static_root / "index.html").read_text(encoding="utf-8"))
         self.assertIn("Core Conflict Packets", (static_root / "index.html").read_text(encoding="utf-8"))
         self.assertIn("ISR Feed Display", (static_root / "index.html").read_text(encoding="utf-8"))
         self.assertIn(".map-grid", (static_root / "styles.css").read_text(encoding="utf-8"))

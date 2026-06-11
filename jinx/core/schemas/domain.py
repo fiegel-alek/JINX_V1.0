@@ -297,6 +297,89 @@ class COPTrack:
 
 
 @dataclass(frozen=True, slots=True)
+class MissionTask:
+    task_id: str
+    title: str
+    purpose: str
+    assigned_to: str
+    route: str | None = None
+    named_area: str | None = None
+    timeline: str | None = None
+    constraints: tuple[str, ...] = field(default_factory=tuple)
+
+    def __post_init__(self) -> None:
+        if not self.task_id:
+            raise ValueError("mission task id is required")
+        if not self.title:
+            raise ValueError("mission task title is required")
+        if not self.purpose:
+            raise ValueError("mission task purpose is required")
+        if not self.assigned_to:
+            raise ValueError("mission task assigned_to is required")
+
+
+@dataclass(frozen=True, slots=True)
+class MissionContext:
+    mission_statement: str
+    commander_intent: str
+    tasks: tuple[MissionTask, ...]
+    named_areas: tuple[str, ...]
+    routes: tuple[str, ...]
+    timeline: tuple[str, ...]
+    constraints: tuple[str, ...]
+    assumptions: tuple[str, ...]
+    missing_information: tuple[str, ...]
+    data_mode: DataMode
+    provenance: ProvenanceRecord
+    simulation_flag: bool = True
+    id: str = field(default_factory=lambda: f"mission-{uuid4()}")
+    timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
+
+    def __post_init__(self) -> None:
+        if not self.mission_statement:
+            raise ValueError("mission statement is required")
+        if not self.commander_intent:
+            raise ValueError("commander intent is required")
+        if not self.tasks:
+            raise ValueError("mission context requires tasks")
+        if self.data_mode in {DataMode.SYNTHETIC, DataMode.MOCK} and not self.simulation_flag:
+            raise ValueError("synthetic and mock mission contexts must be marked as simulation")
+
+
+@dataclass(frozen=True, slots=True)
+class MissionImpactPacket:
+    impacted_area: str
+    summary: str
+    source_event_ids: tuple[str, ...]
+    affected_tasks: tuple[str, ...]
+    affected_routes: tuple[str, ...]
+    affected_named_areas: tuple[str, ...]
+    confidence: ConfidenceScore
+    rationale: str
+    recommended_review_role: str
+    required_human_review: bool
+    provenance_chain: tuple[ProvenanceRecord, ...]
+    id: str = field(default_factory=lambda: f"impact-{uuid4()}")
+    timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
+
+    def __post_init__(self) -> None:
+        if not self.impacted_area:
+            raise ValueError("mission impact impacted_area is required")
+        if not self.summary:
+            raise ValueError("mission impact summary is required")
+        if not self.source_event_ids:
+            raise ValueError("mission impact requires source events")
+        if not self.rationale:
+            raise ValueError("mission impact rationale is required")
+        if not self.recommended_review_role:
+            raise ValueError("mission impact review role is required")
+        if not self.required_human_review:
+            raise ValueError("mission impacts require human review")
+        if not self.provenance_chain:
+            raise ValueError("mission impact requires provenance")
+
+
+@dataclass(frozen=True, slots=True)
 class COPState:
     name: str
     tracks: tuple[COPTrack, ...]

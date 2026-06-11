@@ -3,7 +3,7 @@
 from jinx.app import JINXApplicationService
 from jinx.common.types import DataMode, HumanCommandType, OperatorReportType
 from jinx.modules.operator_mini import OperatorMiniClient
-from jinx.core.schemas import Location
+from jinx.core.schemas import Location, MissionContext, MissionTask
 from jinx.common.types.confidence import ConfidenceScore
 from jinx.core.provenance import ProvenanceRecord
 from jinx.modules.intel import IntelligenceSummary, ISRFeedSnapshot
@@ -98,6 +98,48 @@ class JINXAPIHandlers:
         )
         result = self.service.ingest_isr_feed_snapshot(snapshot)
         return {"feed_id": snapshot.id, "delivered_to_bus": result.delivered}
+
+    def submit_mission_context(self, payload: dict[str, str]) -> dict[str, object]:
+        mission = MissionContext(
+            mission_statement=payload.get(
+                "mission_statement",
+                "Synthetic C5ISR mission context for advisory COP review.",
+            ),
+            commander_intent=payload.get(
+                "commander_intent",
+                "Maintain shared understanding while preserving human authority.",
+            ),
+            tasks=(
+                MissionTask(
+                    task_id="task-alpha",
+                    title=payload.get("task_title", "Synthetic route monitoring"),
+                    purpose=payload.get("task_purpose", "Preserve COP confidence for human review."),
+                    assigned_to=payload.get("assigned_to", "operator-alpha"),
+                    route=payload.get("route", "Route Alpha"),
+                    named_area=payload.get("named_area", "Area Alpha"),
+                    timeline=payload.get("timeline", "T+00 to T+60"),
+                    constraints=("Synthetic data only.", "Human review required for all outputs."),
+                ),
+            ),
+            named_areas=(payload.get("named_area", "Area Alpha"),),
+            routes=(payload.get("route", "Route Alpha"),),
+            timeline=(payload.get("timeline", "T+00 to T+60"),),
+            constraints=("Synthetic scenario only.", "No autonomous command authority."),
+            assumptions=("Operator reports and INTEL summaries are synthetic.",),
+            missing_information=("Human validation status for current COP tracks.",),
+            data_mode=DataMode.SYNTHETIC,
+            provenance=self._synthetic_provenance("jinx-api.mission-context"),
+        )
+        document = self.service.set_mission_context(mission)
+        return {"mission": document}
+
+    def validate_cop_track(self, payload: dict[str, str]) -> dict[str, object]:
+        track = self.service.validate_cop_track(
+            entity_id=payload["entity_id"],
+            reviewer_id=payload["reviewer_id"],
+            note=payload.get("note", ""),
+        )
+        return {"track": track}
 
     @staticmethod
     def _synthetic_confidence() -> ConfidenceScore:

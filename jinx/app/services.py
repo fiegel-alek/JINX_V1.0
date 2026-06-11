@@ -10,8 +10,16 @@ from jinx.core.policy import PolicyEngine
 from jinx.core.persistence import SQLiteJINXDatabase
 from jinx.core.reasoning import CoreReasoningWorkflow
 from jinx.core.registry import build_default_registry
-from jinx.core.schemas import ConflictPacket, Event, HumanCommandInput, OperatorReport, Recommendation
-from jinx.modules.c5isr import C5ISRIntakeResult, C5ISRReportIntake, COPManager
+from jinx.core.schemas import (
+    ConflictPacket,
+    Event,
+    HumanCommandInput,
+    MissionContext,
+    MissionImpactPacket,
+    OperatorReport,
+    Recommendation,
+)
+from jinx.modules.c5isr import C5ISRIntakeResult, C5ISRReportIntake, COPManager, MissionImpactAnalyzer
 from jinx.modules.intel import IntelligenceFusionEngine, IntelligenceFusionResult, IntelligenceSummary, ISRFeedSnapshot
 
 
@@ -43,6 +51,8 @@ class JINXApplicationService:
         self.cop_manager = COPManager(name="jinx-phase3-cop")
         self.core_reasoning = CoreReasoningWorkflow(self.router)
         self.intel_fusion = IntelligenceFusionEngine()
+        self.mission_impact_analyzer = MissionImpactAnalyzer()
+        self.mission_context: MissionContext | None = None
         self._events: list[Event] = []
 
     def submit_operator_report(self, report: OperatorReport) -> OperatorReportResult:
@@ -201,6 +211,37 @@ class JINXApplicationService:
             )
         return result
 
+    def set_mission_context(self, mission: MissionContext) -> dict[str, object]:
+        self.mission_context = mission
+        document = self._mission_document(mission)
+        if self.database is not None:
+            self.database.save_document("mission_contexts", mission.id, document)
+            self.database.save_document("mission_contexts", "active", document)
+            self._append_timeline(
+                "mission_context",
+                "Mission context loaded for C5ISR analysis.",
+                {"mission_id": mission.id},
+            )
+            self._persist_mission_impacts(self._mission_impacts())
+        return document
+
+    def validate_cop_track(self, entity_id: str, reviewer_id: str, note: str = "") -> dict[str, object]:
+        track = self.cop_manager.validate_track(entity_id, reviewer_id, note)
+        if self.database is not None:
+            self.database.save_document("cop_states", "latest", self.cop_state_document())
+            self._append_timeline(
+                "track_validation",
+                f"Track {entity_id} marked human_validated.",
+                {"entity_id": entity_id, "reviewer_id": reviewer_id, "note": note},
+            )
+        return {
+            "entity_id": track.entity.id,
+            "status": track.status,
+            "lifecycle": track.metadata.get("lifecycle", track.status),
+            "validated_by": reviewer_id,
+            "validation_note": note,
+        }
+
     def review_operator_report(
         self,
         report_id: str,
@@ -229,9 +270,93 @@ class JINXApplicationService:
         report["review_state"] = state
         report["reviewed_by"] = reviewer_id
         report["review_note"] = note
+        report["severity"] = self._severity_for_report(report, state)
+        report["assigned_reviewer"] = reviewer_id
+        report["escalation_state"] = self._escalation_for_state(state)
         report["review_history"] = history
         self.database.save_document("operator_reports", report_id, report)
+        self._append_timeline(
+            "report_review",
+            f"Report {report_id} marked {state}.",
+            {"report_id": report_id, "reviewer_id": reviewer_id, "state": state},
+        )
         return report
+
+    def review_center_document(self) -> dict[str, object]:
+        if self.database is None:
+            return {"items": []}
+        reports = self.database.list_documents("operator_reports")
+        conflicts = self.database.list_documents("conflicts")
+        recommendations = self.database.list_documents("recommendations")
+        impacts = self.database.list_documents("mission_impacts")
+        items = []
+        for report in reports:
+            linked_conflicts = [
+                conflict["id"]
+                for conflict in conflicts
+                if report.get("id") in conflict.get("conflicting_items", [])
+                or report.get("id") in " ".join(conflict.get("conflicting_items", []))
+            ]
+            linked_impacts = [
+                impact["id"]
+                for impact in impacts
+                if report.get("id") in impact.get("source_event_ids", [])
+                or report.get("reporter_id", "") in impact.get("summary", "")
+            ]
+            items.append(
+                {
+                    "id": report["id"],
+                    "kind": "operator_report",
+                    "summary": report["summary"],
+                    "severity": report.get("severity", self._severity_for_report(report, report.get("review_state", "new"))),
+                    "confidence": report.get("confidence"),
+                    "review_state": report.get("review_state", "new"),
+                    "assigned_reviewer": report.get("assigned_reviewer") or report.get("reviewed_by") or "c5isr-manager",
+                    "escalation_state": report.get("escalation_state", "none"),
+                    "linked_conflicts": linked_conflicts,
+                    "linked_recommendations": [item["id"] for item in recommendations[:3]],
+                    "linked_mission_impacts": linked_impacts,
+                    "needs_operator_clarification": report.get("review_state") == "needs_more_info",
+                    "needs_intel_review": any("intel" in impact.get("impacted_area", "") for impact in impacts),
+                    "needs_net_review": report.get("report_type") == "communications_check",
+                }
+            )
+        return {"items": items}
+
+    def timeline_document(self) -> dict[str, object]:
+        if self.database is None:
+            return {"timeline": []}
+        timeline = self.database.list_documents("timeline")
+        if timeline:
+            return {"timeline": timeline}
+        events = self.database.list_documents("events")
+        return {
+            "timeline": [
+                {
+                    "id": event["id"],
+                    "kind": "event",
+                    "summary": event.get("description", ""),
+                    "timestamp": event.get("timestamp", ""),
+                    "related_id": event["id"],
+                }
+                for event in events
+            ]
+        }
+
+    @staticmethod
+    def layer_config_document() -> dict[str, object]:
+        return {
+            "layers": [
+                {"id": "tracks", "label": "Tracks", "enabled": True},
+                {"id": "reports", "label": "Reports", "enabled": True},
+                {"id": "conflicts", "label": "Conflicts", "enabled": True},
+                {"id": "isr", "label": "ISR feeds", "enabled": True},
+                {"id": "advisories", "label": "Advisories", "enabled": True},
+                {"id": "mission", "label": "Mission areas/routes", "enabled": True},
+                {"id": "stale", "label": "Stale tracks", "enabled": True},
+                {"id": "synthetic", "label": "Synthetic/replay labels", "enabled": True},
+            ]
+        }
 
     def cop_state_document(self) -> dict[str, object]:
         state = self.cop_manager.state()
@@ -241,6 +366,7 @@ class JINXApplicationService:
             "id": state.id,
             "name": state.name,
             "data_mode": state.data_mode.value,
+            "mission_context_id": self.mission_context.id if self.mission_context else None,
             "tracks": [
                 {
                     "entity_id": track.entity.id,
@@ -251,13 +377,22 @@ class JINXApplicationService:
                     "confidence": track.confidence.value,
                     "last_report_id": track.last_report_id,
                     "updated_at": track.updated_at.isoformat(),
+                    "lifecycle": track.metadata.get("lifecycle", "active"),
+                    "history_count": int(track.metadata.get("history_count", "1")),
+                    "human_validated": track.metadata.get("human_validated") == "True",
+                    "track_history": list(self.cop_manager.track_history(track.entity.id)),
                     "report_count": sum(1 for report in reports if report.get("reporter_id") == track.entity.id),
                     "advisory_count": sum(
                         1
                         for advisory in advisories
                         if track.last_report_id in advisory.get("related_report_ids", [])
                     ),
-                    "stale": False,
+                    "conflict_count": sum(
+                        1
+                        for conflict in (self.database.list_documents("conflicts") if self.database else ())
+                        if track.last_report_id in conflict.get("conflicting_items", [])
+                    ),
+                    "stale": track.metadata.get("lifecycle") == "stale",
                 }
                 for track in state.tracks
             ],
@@ -289,6 +424,18 @@ class JINXApplicationService:
                 "reviewed_by": None,
                 "review_note": "",
                 "review_history": [],
+                "severity": self._severity_for_report(
+                    {"report_type": report.report_type.value, "summary": report.summary}, "new"
+                ),
+                "assigned_reviewer": "c5isr-manager",
+                "escalation_state": "none",
+                "linked_conflicts": [],
+                "linked_recommendations": [],
+                "linked_mission_impacts": [],
+                "needs_operator_clarification": False,
+                "needs_intel_review": False,
+                "needs_net_review": report.report_type.value == "communications_check",
+                "timestamp": report.timestamp.isoformat(),
             },
         )
         self.database.save_document(
@@ -302,6 +449,8 @@ class JINXApplicationService:
                 "location": intake.event.location.label if intake.event.location else None,
                 "confidence": intake.event.confidence.value,
                 "operator_report_id": report.id,
+                "mission_impact_tags": intake.event.metadata.get("mission_impact_tags", ""),
+                "timestamp": intake.event.timestamp.isoformat(),
             },
         )
         self.database.save_document(
@@ -314,7 +463,13 @@ class JINXApplicationService:
                 "confidence": intake.advisory.confidence.value,
                 "related_report_ids": list(intake.advisory.related_report_ids),
                 "delivered": advisory_route.delivered,
+                "timestamp": intake.advisory.timestamp.isoformat(),
             },
+        )
+        self._append_timeline(
+            "operator_report",
+            f"{report.reporter_id} submitted {report.report_type.value}.",
+            {"report_id": report.id, "event_id": intake.event.id},
         )
         if intake.event.location is not None:
             self.database.save_document("cop_states", "latest", self.cop_state_document())
@@ -324,6 +479,7 @@ class JINXApplicationService:
             return None
         result = self.core_reasoning.review_events(tuple(self._events))
         self._persist_core_analysis(result.conflicts, result.recommendations)
+        self._persist_mission_impacts(self._mission_impacts())
         return result
 
     def _persist_core_analysis(
@@ -425,5 +581,114 @@ class JINXApplicationService:
                     "intel_summary_id": event.metadata.get("intel_summary_id"),
                     "intel_impact_id": event.metadata.get("intel_impact_id"),
                     "impacted_area": event.metadata.get("impacted_area"),
+                    "mission_impact_tags": event.metadata.get("mission_impact_tags", ""),
+                    "timestamp": event.timestamp.isoformat(),
                 },
             )
+            self._append_timeline(
+                "intel_event",
+                f"INTEL impact event generated: {event.event_type.value}.",
+                {"event_id": event.id, "intel_summary_id": event.metadata.get("intel_summary_id", "")},
+            )
+
+    def _mission_impacts(self) -> tuple[MissionImpactPacket, ...]:
+        if self.mission_context is None:
+            return ()
+        return self.mission_impact_analyzer.analyze(self.mission_context, tuple(self._events))
+
+    def _persist_mission_impacts(self, impacts: tuple[MissionImpactPacket, ...]) -> None:
+        if self.database is None:
+            return
+        for impact in impacts:
+            self.database.save_document(
+                "mission_impacts",
+                impact.id,
+                {
+                    "id": impact.id,
+                    "impacted_area": impact.impacted_area,
+                    "summary": impact.summary,
+                    "source_event_ids": list(impact.source_event_ids),
+                    "affected_tasks": list(impact.affected_tasks),
+                    "affected_routes": list(impact.affected_routes),
+                    "affected_named_areas": list(impact.affected_named_areas),
+                    "confidence": impact.confidence.value,
+                    "rationale": impact.rationale,
+                    "recommended_review_role": impact.recommended_review_role,
+                    "required_human_review": impact.required_human_review,
+                    "timestamp": impact.timestamp.isoformat(),
+                },
+            )
+            self._append_timeline(
+                "mission_impact",
+                impact.summary,
+                {"impact_id": impact.id, "impacted_area": impact.impacted_area},
+            )
+
+    @staticmethod
+    def _mission_document(mission: MissionContext) -> dict[str, object]:
+        return {
+            "id": mission.id,
+            "mission_statement": mission.mission_statement,
+            "commander_intent": mission.commander_intent,
+            "tasks": [
+                {
+                    "task_id": task.task_id,
+                    "title": task.title,
+                    "purpose": task.purpose,
+                    "assigned_to": task.assigned_to,
+                    "route": task.route,
+                    "named_area": task.named_area,
+                    "timeline": task.timeline,
+                    "constraints": list(task.constraints),
+                }
+                for task in mission.tasks
+            ],
+            "named_areas": list(mission.named_areas),
+            "routes": list(mission.routes),
+            "timeline": list(mission.timeline),
+            "constraints": list(mission.constraints),
+            "assumptions": list(mission.assumptions),
+            "missing_information": list(mission.missing_information),
+            "data_mode": mission.data_mode.value,
+            "simulation_flag": mission.simulation_flag,
+            "timestamp": mission.timestamp.isoformat(),
+        }
+
+    def _append_timeline(self, kind: str, summary: str, metadata: dict[str, str]) -> None:
+        if self.database is None:
+            return
+        timestamp = datetime.now(UTC)
+        document_id = f"{timestamp.isoformat()}-{kind}"
+        self.database.save_document(
+            "timeline",
+            document_id,
+            {
+                "id": document_id,
+                "kind": kind,
+                "summary": summary,
+                "timestamp": timestamp.isoformat(),
+                "metadata": metadata,
+            },
+        )
+
+    @staticmethod
+    def _severity_for_report(report: dict[str, object], state: str) -> str:
+        text = f"{report.get('report_type', '')} {report.get('summary', '')}".lower()
+        if state == "needs_more_info":
+            return "medium"
+        if any(term in text for term in ("medical", "hazard", "loss", "outage", "unavailable")):
+            return "high"
+        if any(term in text for term in ("delay", "logistics", "weather", "route")):
+            return "medium"
+        return "low"
+
+    @staticmethod
+    def _escalation_for_state(state: str) -> str:
+        mapping = {
+            "new": "none",
+            "under_review": "watch",
+            "validated": "resolved",
+            "needs_more_info": "clarification",
+            "closed": "resolved",
+        }
+        return mapping[state]

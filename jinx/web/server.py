@@ -11,6 +11,7 @@ from urllib.parse import urlparse
 from jinx.api import JINXAPIHandlers
 from jinx.app import JINXApplicationService
 from jinx.core.persistence import SQLiteJINXDatabase
+from jinx.modules.sim import default_c5isr_scenario_packs
 
 ROLE_PERMISSIONS = {
     "operator": frozenset({"operator_report:submit", "cop:read"}),
@@ -20,9 +21,11 @@ ROLE_PERMISSIONS = {
             "operator_report:submit",
             "operator_report:review",
             "cop:read",
+            "cop:write",
             "intel:submit",
             "isr:read",
             "isr:write",
+            "mission:write",
             "sim:inject",
         }
     ),
@@ -60,6 +63,30 @@ class JINXRequestHandler(SimpleHTTPRequestHandler):
                 documents = self.server.database.list_documents("cop_states")
                 latest = documents[-1] if documents else {"id": None, "name": "empty", "tracks": []}
                 self._send_json(latest)
+                return
+            if parsed.path == "/api/cop/layers":
+                self._require_permission("cop:read")
+                self._send_json(self.server.api_handlers.service.layer_config_document())
+                return
+            if parsed.path == "/api/mission-context":
+                self._require_permission("cop:read")
+                try:
+                    mission = self.server.database.get_document("mission_contexts", "active")
+                except KeyError:
+                    mission = {"id": None, "mission_statement": "No mission context loaded.", "tasks": []}
+                self._send_json({"mission": mission})
+                return
+            if parsed.path == "/api/mission-impacts":
+                self._require_permission("cop:read")
+                self._send_json({"mission_impacts": self.server.database.list_documents("mission_impacts")})
+                return
+            if parsed.path == "/api/review-center":
+                self._require_permission("cop:read")
+                self._send_json(self.server.api_handlers.service.review_center_document())
+                return
+            if parsed.path == "/api/timeline":
+                self._require_permission("cop:read")
+                self._send_json(self.server.api_handlers.service.timeline_document())
                 return
             if parsed.path == "/api/operator-reports":
                 self._require_permission("cop:read")
@@ -117,6 +144,23 @@ class JINXRequestHandler(SimpleHTTPRequestHandler):
                     }
                 )
                 return
+            if parsed.path == "/api/sim/c5isr-scenarios":
+                self._require_permission("cop:read")
+                self._send_json(
+                    {
+                        "scenario_packs": [
+                            {
+                                "id": pack.id,
+                                "name": pack.name,
+                                "summary": pack.summary,
+                                "injects": list(pack.injects),
+                                "expected_outputs": list(pack.expected_outputs),
+                            }
+                            for pack in default_c5isr_scenario_packs()
+                        ]
+                    }
+                )
+                return
             if parsed.path == "/":
                 self.path = "/index.html"
             super().do_GET()
@@ -138,6 +182,14 @@ class JINXRequestHandler(SimpleHTTPRequestHandler):
             if parsed.path == "/api/operator-reports/review":
                 self._require_permission("operator_report:review")
                 self._send_json(self.server.api_handlers.review_operator_report(payload), status=200)
+                return
+            if parsed.path == "/api/cop/tracks/validate":
+                self._require_permission("cop:write")
+                self._send_json(self.server.api_handlers.validate_cop_track(payload), status=200)
+                return
+            if parsed.path == "/api/mission-context":
+                self._require_permission("mission:write")
+                self._send_json(self.server.api_handlers.submit_mission_context(payload), status=201)
                 return
             if parsed.path == "/api/intelligence-summaries":
                 self._require_permission("intel:submit")
@@ -189,12 +241,24 @@ class JINXRequestHandler(SimpleHTTPRequestHandler):
         raise PermissionError(f"role {role} lacks permission {permission}")
 
     def _inject_demo_reports(self) -> dict[str, Any]:
+        mission_response = self.server.api_handlers.submit_mission_context(
+            {
+                "mission_statement": "Synthetic C5ISR mission monitors Route Alpha and Area Alpha.",
+                "commander_intent": "Maintain coherent COP confidence and surface mission impacts for review.",
+                "task_title": "Monitor Route Alpha",
+                "task_purpose": "Identify confidence-limited route, communications, and weather impacts.",
+                "assigned_to": "operator-alpha",
+                "route": "Route Alpha",
+                "named_area": "Area Alpha",
+                "timeline": "T+00 to T+60",
+            }
+        )
         demo_reports = (
             {
                 "reporter_id": "operator-alpha",
                 "device_id": "operator-mini-001",
                 "report_type": "position_update",
-                "summary": "Synthetic position update from operator alpha.",
+                "summary": "Synthetic position update from operator alpha near Route Alpha.",
                 "location": "grid-alpha",
             },
             {
@@ -237,6 +301,7 @@ class JINXRequestHandler(SimpleHTTPRequestHandler):
         )
         return {
             "injected": len(responses),
+            "mission": mission_response,
             "reports": responses,
             "intel_summary": intel_response,
             "isr_feed": feed_response,

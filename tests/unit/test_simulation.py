@@ -1,7 +1,7 @@
 from unittest import TestCase
 
 from jinx.common.types import DataMode, EventType
-from jinx.modules.sim import SyntheticScenarioFactory
+from jinx.modules.sim import SyntheticScenarioFactory, default_c5isr_scenario_packs
 from jinx.modules.sim.scenarios import SimulationEvent, SimulationScenario
 
 
@@ -41,3 +41,10 @@ class SimulationTests(TestCase):
         self.assertEqual(event.data_mode, DataMode.SYNTHETIC)
         self.assertEqual(event.event_type, EventType.CONFLICTING_REPORT)
         self.assertTrue(event.simulation_flag)
+
+    def test_default_c5isr_scenario_packs_cover_review_cases(self) -> None:
+        packs = default_c5isr_scenario_packs()
+
+        self.assertGreaterEqual(len(packs), 8)
+        self.assertIn("Conflicting Location Reports", {pack.name for pack in packs})
+        self.assertTrue(all(pack.expected_outputs for pack in packs))

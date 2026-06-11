@@ -5,9 +5,15 @@ const els = {
   copMap: document.querySelector("#cop-map"),
   trackList: document.querySelector("#track-list"),
   trackCount: document.querySelector("#track-count"),
+  missionContext: document.querySelector("#mission-context"),
+  layerList: document.querySelector("#layer-list"),
   reportList: document.querySelector("#report-list"),
+  reviewCenterList: document.querySelector("#review-center-list"),
+  missionImpactList: document.querySelector("#mission-impact-list"),
+  scenarioPackList: document.querySelector("#scenario-pack-list"),
   advisoryList: document.querySelector("#advisory-list"),
   eventList: document.querySelector("#event-list"),
+  timelineList: document.querySelector("#timeline-list"),
   conflictList: document.querySelector("#conflict-list"),
   recommendationList: document.querySelector("#recommendation-list"),
   isrFeedList: document.querySelector("#isr-feed-list"),
@@ -19,6 +25,7 @@ const els = {
   isrFeedForm: document.querySelector("#isr-feed-form"),
   refreshButton: document.querySelector("#refresh-button"),
   demoButton: document.querySelector("#demo-button"),
+  missionButton: document.querySelector("#mission-button"),
   roleSelect: document.querySelector("#role-select"),
   metrics: {
     tracks: document.querySelector("#metric-tracks"),
@@ -99,8 +106,12 @@ function renderTracks(cop) {
   renderList(els.trackList, tracks, "No tracks loaded", (track) => `
     <article class="item">
       <strong>${escapeHTML(track.label)}</strong>
-      <span>${escapeHTML(track.location)} · ${escapeHTML(track.status)} · confidence ${escapeHTML(track.confidence)}</span>
-      <span>${escapeHTML(track.report_count)} reports · ${escapeHTML(track.advisory_count)} advisories · updated ${formatTime(track.updated_at)}</span>
+      <span>${escapeHTML(track.location)} · ${escapeHTML(track.lifecycle || track.status)} · confidence ${escapeHTML(track.confidence)}</span>
+      <span>${escapeHTML(track.report_count)} reports · ${escapeHTML(track.conflict_count)} conflicts · ${escapeHTML(track.history_count)} history points</span>
+      <span>${track.human_validated ? "human validated" : "human validation pending"} · updated ${formatTime(track.updated_at)}</span>
+      <div class="review-row">
+        <button type="button" data-track-validate="${escapeHTML(track.entity_id)}">Validate track</button>
+      </div>
     </article>
   `);
 
@@ -112,6 +123,40 @@ function renderTracks(cop) {
     marker.style.top = `${28 + (index * 29) % 48}%`;
     els.copMap.appendChild(marker);
   });
+}
+
+function renderMission(mission) {
+  document.querySelector("#mission-id").textContent = mission.id || "not loaded";
+  if (!mission.id) {
+    els.missionContext.className = "list empty";
+    els.missionContext.textContent = "No mission context loaded";
+    return;
+  }
+  const tasks = mission.tasks || [];
+  els.missionContext.className = "list";
+  els.missionContext.innerHTML = `
+    <article class="item">
+      <strong>${escapeHTML(mission.mission_statement)}</strong>
+      <span>${escapeHTML(mission.commander_intent)}</span>
+      <span>Routes: ${escapeHTML((mission.routes || []).join(", ") || "none")} · Areas: ${escapeHTML((mission.named_areas || []).join(", ") || "none")}</span>
+    </article>
+    ${tasks.map((task) => `
+      <article class="item">
+        <strong>${escapeHTML(task.task_id)} · ${escapeHTML(task.title)}</strong>
+        <span>${escapeHTML(task.purpose)}</span>
+        <span>${escapeHTML(task.assigned_to)} · ${escapeHTML(task.route || "no route")} · ${escapeHTML(task.named_area || "no area")}</span>
+      </article>
+    `).join("")}
+  `;
+}
+
+function renderLayers(layers) {
+  els.layerList.innerHTML = (layers || []).map((layer) => `
+    <label class="layer-toggle">
+      <input type="checkbox" data-layer="${escapeHTML(layer.id)}" ${layer.enabled ? "checked" : ""} />
+      ${escapeHTML(layer.label)}
+    </label>
+  `).join("");
 }
 
 function renderReports(reports) {
@@ -162,6 +207,41 @@ async function updateReportReview(reportId, state) {
   });
   addActivity(`Report ${response.report.id} marked ${reviewLabel(response.report.review_state)}.`);
   await refreshDashboard();
+}
+
+function renderReviewCenter(items) {
+  document.querySelector("#review-center-count").textContent = items.length;
+  renderList(els.reviewCenterList, items, "No review items", (item) => `
+    <article class="item review-item">
+      <strong>${escapeHTML(item.kind)} · ${escapeHTML(item.severity)} · ${escapeHTML(item.review_state)}</strong>
+      <span>${escapeHTML(item.summary)}</span>
+      <span>assigned ${escapeHTML(item.assigned_reviewer)} · escalation ${escapeHTML(item.escalation_state)}</span>
+      <span>${item.needs_operator_clarification ? "operator clarification needed" : "operator clarification clear"} · ${item.needs_intel_review ? "INTEL review" : "INTEL clear"} · ${item.needs_net_review ? "NET review" : "NET clear"}</span>
+    </article>
+  `);
+}
+
+function renderMissionImpacts(impacts) {
+  document.querySelector("#mission-impact-count").textContent = impacts.length;
+  renderList(els.missionImpactList, impacts, "No mission impacts", (impact) => `
+    <article class="item mission-impact">
+      <strong>${escapeHTML(impact.impacted_area)} · confidence ${escapeHTML(impact.confidence)}</strong>
+      <span>${escapeHTML(impact.summary)}</span>
+      <span>tasks: ${escapeHTML((impact.affected_tasks || []).join(", ") || "none")} · routes: ${escapeHTML((impact.affected_routes || []).join(", ") || "none")}</span>
+      <span>review: ${escapeHTML(impact.recommended_review_role)}</span>
+    </article>
+  `);
+}
+
+function renderScenarioPacks(packs) {
+  document.querySelector("#scenario-pack-count").textContent = packs.length;
+  renderList(els.scenarioPackList, packs, "No scenario packs", (pack) => `
+    <article class="item scenario">
+      <strong>${escapeHTML(pack.name)}</strong>
+      <span>${escapeHTML(pack.summary)}</span>
+      <span>expects: ${escapeHTML((pack.expected_outputs || []).join(", "))}</span>
+    </article>
+  `);
 }
 
 function renderAdvisories(advisories) {
@@ -224,6 +304,15 @@ function renderISRFeeds(feeds) {
   `);
 }
 
+function renderTimeline(timeline) {
+  renderList(els.timelineList, timeline.slice(-10).reverse(), "No timeline entries", (entry) => `
+    <article class="item timeline">
+      <strong>${escapeHTML(entry.kind)} · ${formatTime(entry.timestamp)}</strong>
+      <span>${escapeHTML(entry.summary)}</span>
+    </article>
+  `);
+}
+
 function renderModules(modules) {
   els.moduleList.innerHTML = modules.map((module) => `
     <article class="module-card">
@@ -247,25 +336,53 @@ function addActivity(text) {
 
 async function refreshDashboard() {
   try {
-    const [health, cop, reports, advisories, events, conflicts, recommendations, isrFeeds, modules] = await Promise.all([
+    const [
+      health,
+      cop,
+      mission,
+      layers,
+      reports,
+      reviewCenter,
+      missionImpacts,
+      advisories,
+      events,
+      conflicts,
+      recommendations,
+      isrFeeds,
+      timeline,
+      scenarios,
+      modules,
+    ] = await Promise.all([
       getJSON("/api/health"),
       getJSON("/api/cop"),
+      getJSON("/api/mission-context"),
+      getJSON("/api/cop/layers"),
       getJSON("/api/operator-reports"),
+      getJSON("/api/review-center"),
+      getJSON("/api/mission-impacts"),
       getJSON("/api/advisories"),
       getJSON("/api/events"),
       getJSON("/api/conflicts"),
       getJSON("/api/recommendations"),
       getOptionalJSON("/api/isr-feeds", { isr_feeds: [] }),
+      getJSON("/api/timeline"),
+      getJSON("/api/sim/c5isr-scenarios"),
       getJSON("/api/modules"),
     ]);
     setStatus(true, `${health.service} API online`);
     renderTracks(cop);
+    renderMission(mission.mission);
+    renderLayers(layers.layers || []);
     renderReports(reports.operator_reports || []);
+    renderReviewCenter(reviewCenter.items || []);
+    renderMissionImpacts(missionImpacts.mission_impacts || []);
     renderAdvisories(advisories.advisories || []);
     renderEvents(events.events || []);
     renderConflicts(conflicts.conflicts || []);
     renderRecommendations(recommendations.recommendations || []);
     renderISRFeeds(isrFeeds.isr_feeds || []);
+    renderTimeline(timeline.timeline || []);
+    renderScenarioPacks(scenarios.scenario_packs || []);
     renderModules(modules.modules || []);
   } catch (error) {
     setStatus(false, "API offline");
@@ -314,6 +431,37 @@ els.isrFeedForm.addEventListener("submit", async (event) => {
   try {
     const response = await postJSON("/api/isr-feeds", data);
     addActivity(`ISR feed ${response.feed_id} delivered to BUS: ${response.delivered_to_bus}.`);
+    await refreshDashboard();
+  } catch (error) {
+    addActivity(error.message);
+  }
+});
+
+els.missionButton.addEventListener("click", async () => {
+  try {
+    const response = await postJSON("/api/mission-context", {
+      mission_statement: "Synthetic C5ISR mission monitors Route Alpha and Area Alpha.",
+      commander_intent: "Maintain coherent COP confidence and surface mission impacts for review.",
+      route: "Route Alpha",
+      named_area: "Area Alpha",
+    });
+    addActivity(`Mission ${response.mission.id} loaded.`);
+    await refreshDashboard();
+  } catch (error) {
+    addActivity(error.message);
+  }
+});
+
+els.trackList.addEventListener("click", async (event) => {
+  const button = event.target.closest("[data-track-validate]");
+  if (!button) return;
+  try {
+    const response = await postJSON("/api/cop/tracks/validate", {
+      entity_id: button.dataset.trackValidate,
+      reviewer_id: activeRole() === "commander" ? "commander-alpha" : "c5isr-manager-alpha",
+      note: "Human validation from COP manager.",
+    });
+    addActivity(`Track ${response.track.entity_id} marked ${response.track.lifecycle}.`);
     await refreshDashboard();
   } catch (error) {
     addActivity(error.message);

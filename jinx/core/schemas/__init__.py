@@ -10,6 +10,9 @@ from jinx.core.schemas.domain import (
     Event,
     HumanCommandInput,
     Location,
+    MissionContext,
+    MissionImpactPacket,
+    MissionTask,
     OperatorReport,
     Recommendation,
 )
@@ -24,6 +27,9 @@ __all__ = [
     "Event",
     "HumanCommandInput",
     "Location",
+    "MissionContext",
+    "MissionImpactPacket",
+    "MissionTask",
     "OperatorReport",
     "Recommendation",
 ]

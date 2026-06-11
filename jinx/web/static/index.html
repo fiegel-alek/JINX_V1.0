@@ -102,6 +102,24 @@
           </section>
         </section>
 
+        <section class="data-grid two">
+          <section class="panel">
+            <div class="section-head">
+              <h2>Mission Context</h2>
+              <span id="mission-id">not loaded</span>
+            </div>
+            <div id="mission-context" class="list empty">No mission context loaded</div>
+            <button id="mission-button" type="button">Load Synthetic Mission</button>
+          </section>
+          <section class="panel">
+            <div class="section-head">
+              <h2>COP Layers</h2>
+              <span>Display controls</span>
+            </div>
+            <div id="layer-list" class="layer-grid"></div>
+          </section>
+        </section>
+
         <section class="operations">
           <section class="panel" id="reports">
             <div class="section-head">
@@ -228,6 +246,30 @@
         <section class="data-grid">
           <section class="panel">
             <div class="section-head">
+              <h2>C5ISR Review Center</h2>
+              <span id="review-center-count">0</span>
+            </div>
+            <div id="review-center-list" class="list empty">No review items</div>
+          </section>
+          <section class="panel">
+            <div class="section-head">
+              <h2>Mission Impact Packets</h2>
+              <span id="mission-impact-count">0</span>
+            </div>
+            <div id="mission-impact-list" class="list empty">No mission impacts</div>
+          </section>
+          <section class="panel">
+            <div class="section-head">
+              <h2>Scenario Packs</h2>
+              <span id="scenario-pack-count">0</span>
+            </div>
+            <div id="scenario-pack-list" class="list empty">No scenario packs</div>
+          </section>
+        </section>
+
+        <section class="data-grid">
+          <section class="panel">
+            <div class="section-head">
               <h2>Report Inbox</h2>
               <span id="report-count">0</span>
             </div>
@@ -242,7 +284,7 @@
           </section>
           <section class="panel">
             <div class="section-head">
-              <h2>Event Timeline</h2>
+              <h2>Raw Events</h2>
               <span id="event-count">0</span>
             </div>
             <div id="event-list" class="list empty">No events</div>
@@ -283,9 +325,10 @@
           </section>
           <section class="panel" id="sim">
             <div class="section-head">
-              <h2>Simulation / Guardrails</h2>
+              <h2>Timeline / Guardrails</h2>
               <span>Advisory only</span>
             </div>
+            <div id="timeline-list" class="list empty">No timeline entries</div>
             <div id="activity-list" class="list empty">No activity yet</div>
             <ul class="guardrails">
               <li>Core does not originate command authority.</li>
