@@ -3,9 +3,11 @@
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
-from jinx.common.types import AdvisoryLabel, DataMode, EventType, OperatorReportType
+from jinx.common.types import AdvisoryLabel, DataMode
 from jinx.core.provenance import ProvenanceRecord
 from jinx.core.schemas import COPAdvisory, Event, OperatorReport
+from jinx.modules.c5isr.classification import C5ISREventClassifier
+from jinx.modules.intel import IntelligenceImpact
 
 
 @dataclass(frozen=True, slots=True)
@@ -15,12 +17,44 @@ class C5ISRIntakeResult:
 
 
 class C5ISRReportIntake:
+    def __init__(self, classifier: C5ISREventClassifier | None = None) -> None:
+        self._classifier = classifier or C5ISREventClassifier()
+
     def ingest_operator_report(self, report: OperatorReport) -> C5ISRIntakeResult:
         event = self._event_from_report(report)
         advisory = self._advisory_from_report(report)
         return C5ISRIntakeResult(event=event, advisory=advisory)
 
+    def ingest_intel_impact(self, impact: IntelligenceImpact, related_summary_id: str) -> Event:
+        classification = self._classifier.classify_intel_impact(impact)
+        provenance = ProvenanceRecord(
+            source=impact.id,
+            time_received=datetime.now(UTC),
+            processed_by_module="jinx-c5isr",
+            transformations=("intel_impact_received", "event_normalized"),
+            confidence=impact.confidence,
+            downstream_outputs=(impact.id,),
+        )
+        return Event(
+            event_type=classification.event_type,
+            source="jinx-intel",
+            description=impact.summary,
+            confidence=impact.confidence,
+            provenance=provenance,
+            data_mode=DataMode.SYNTHETIC,
+            metadata={
+                "classification_rationale": classification.rationale,
+                "mission_impact_tags": ",".join(classification.mission_impact_tags),
+                "intel_impact_id": impact.id,
+                "intel_summary_id": related_summary_id,
+                "impacted_area": impact.impacted_area,
+                "input_source": "jinx-intel",
+            },
+            simulation_flag=True,
+        )
+
     def _event_from_report(self, report: OperatorReport) -> Event:
+        classification = self._classifier.classify_operator_report(report.report_type, report.summary)
         provenance = ProvenanceRecord(
             source=report.id,
             time_received=datetime.now(UTC),
@@ -30,7 +64,7 @@ class C5ISRReportIntake:
             downstream_outputs=(report.id,),
         )
         return Event(
-            event_type=self._event_type_for_report(report.report_type),
+            event_type=classification.event_type,
             source=report.source_device_id,
             description=report.summary,
             confidence=report.confidence,
@@ -41,6 +75,9 @@ class C5ISRReportIntake:
                 "operator_report_id": report.id,
                 "report_type": report.report_type.value,
                 "reporter_id": report.reporter_id,
+                "classification_rationale": classification.rationale,
+                "mission_impact_tags": ",".join(classification.mission_impact_tags),
+                "input_source": "operator-mini",
             },
             simulation_flag=report.simulation_flag,
         )
@@ -68,18 +105,3 @@ class C5ISRReportIntake:
             ),
             related_report_ids=(report.id,),
         )
-
-    @staticmethod
-    def _event_type_for_report(report_type: OperatorReportType) -> EventType:
-        mapping = {
-            OperatorReportType.COMMUNICATIONS_CHECK: EventType.COMMUNICATIONS_CHECK,
-            OperatorReportType.LOGISTICS: EventType.LOGISTICS_ISSUE,
-            OperatorReportType.MEDICAL: EventType.UNKNOWN_REQUIRES_REVIEW,
-            OperatorReportType.HAZARD: EventType.UNKNOWN_REQUIRES_REVIEW,
-            OperatorReportType.OBSERVATION: EventType.UNKNOWN_REQUIRES_REVIEW,
-            OperatorReportType.POSITION_UPDATE: EventType.POSITION_UPDATE,
-            OperatorReportType.REQUEST_INFORMATION: EventType.UNKNOWN_REQUIRES_REVIEW,
-            OperatorReportType.STATUS_UPDATE: EventType.STATUS_UPDATE,
-            OperatorReportType.UNKNOWN_REQUIRES_REVIEW: EventType.UNKNOWN_REQUIRES_REVIEW,
-        }
-        return mapping[report_type]

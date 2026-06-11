@@ -104,6 +104,7 @@ class ConflictPacket:
     detected_by_module: str
     conflicting_items: tuple[str, ...]
     likely_impacts: tuple[str, ...]
+    potential_human_resolutions: tuple[str, ...]
     confidence: ConfidenceScore
     explanation: str
     recommended_review_role: str
@@ -119,6 +120,10 @@ class ConflictPacket:
             raise ValueError("detected_by_module is required")
         if len(self.conflicting_items) < 2:
             raise ValueError("conflict packets require at least two conflicting items")
+        if not self.likely_impacts:
+            raise ValueError("conflict packets require likely impacts")
+        if not self.potential_human_resolutions:
+            raise ValueError("conflict packets require potential human resolutions")
         if not self.explanation:
             raise ValueError("conflict explanation is required")
         if not self.recommended_review_role:
@@ -140,6 +145,7 @@ class Recommendation:
     allowed_actions: tuple[str, ...]
     disallowed_actions: tuple[str, ...]
     provenance_chain: tuple[ProvenanceRecord, ...]
+    brain_references: tuple[str, ...] = field(default_factory=tuple)
     id: str = field(default_factory=lambda: f"rec-{uuid4()}")
 
     def __post_init__(self) -> None:

@@ -30,6 +30,7 @@ class DomainSchemaTests(TestCase):
                 detected_by_module="jinx-brain",
                 conflicting_items=("report-a",),
                 likely_impacts=("human review needed",),
+                potential_human_resolutions=("Ask a reviewer to compare the source chain.",),
                 confidence=confidence(),
                 explanation="Only one item is not enough to establish a conflict packet.",
                 recommended_review_role="analyst",

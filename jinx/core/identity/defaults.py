@@ -14,7 +14,7 @@ def build_default_access_control() -> AccessControl:
         Role(
             name="commander",
             permissions=frozenset(
-                {"human_command:submit", "cop:read", "advisory:review", "operator_report:review"}
+                {"human_command:submit", "cop:read", "advisory:review", "operator_report:review", "isr:read"}
             ),
             description="Provides human command input and reviews advisories.",
         ),
@@ -27,6 +27,9 @@ def build_default_access_control() -> AccessControl:
                     "cop:read",
                     "cop:write",
                     "advisory:review",
+                    "intel:submit",
+                    "isr:read",
+                    "isr:write",
                     "sim:inject",
                 }
             ),
@@ -44,7 +47,7 @@ def build_default_access_control() -> AccessControl:
         ),
         Role(
             name="intel_analyst",
-            permissions=frozenset({"intel:review", "advisory:review"}),
+            permissions=frozenset({"intel:review", "intel:submit", "isr:read", "isr:write", "advisory:review"}),
             description="Reviews intelligence-derived summaries and impacts.",
         ),
         Role(

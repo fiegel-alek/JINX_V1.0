@@ -5,6 +5,7 @@ from jinx.modules.intel.models import (
     IntelligenceFusionResult,
     IntelligenceImpact,
     IntelligenceSummary,
+    ISRFeedSnapshot,
 )
 
 __all__ = [
@@ -12,4 +13,5 @@ __all__ = [
     "IntelligenceFusionResult",
     "IntelligenceImpact",
     "IntelligenceSummary",
+    "ISRFeedSnapshot",
 ]

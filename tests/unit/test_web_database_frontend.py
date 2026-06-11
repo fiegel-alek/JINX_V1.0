@@ -68,6 +68,47 @@ class WebDatabaseFrontendTests(TestCase):
             self.assertEqual(reviewed["report"]["reviewed_by"], "c5isr-manager-alpha")
             self.assertEqual(len(reviewed["report"]["review_history"]), 1)
 
+    def test_api_handler_ingests_intel_summary_and_isr_feed(self) -> None:
+        with TemporaryDirectory() as tmp:
+            database = SQLiteJINXDatabase(Path(tmp) / "jinx.sqlite3")
+            handlers = JINXAPIHandlers(JINXApplicationService(database=database))
+            handlers.submit_operator_report(
+                {
+                    "reporter_id": "operator-alpha",
+                    "device_id": "operator-mini-001",
+                    "report_type": "hazard",
+                    "summary": "Synthetic hazard report from operator.",
+                    "location": "grid-alpha",
+                }
+            )
+
+            intel_response = handlers.submit_intelligence_summary(
+                {
+                    "source_category": "synthetic_isr_summary",
+                    "summary": "Synthetic weather and communications context may affect assumptions.",
+                    "reliability": "0.75",
+                    "related_locations": "grid-alpha",
+                }
+            )
+            feed_response = handlers.submit_isr_feed_snapshot(
+                {
+                    "feed_name": "Synthetic ISR Orbit Alpha",
+                    "feed_type": "synthetic_full_motion_video",
+                    "status": "available",
+                    "coverage_area": "grid-alpha",
+                    "summary": "Synthetic ISR feed available for display.",
+                }
+            )
+
+            self.assertTrue(intel_response["delivered"])
+            self.assertGreaterEqual(intel_response["conflicts"], 1)
+            self.assertTrue(feed_response["delivered_to_bus"])
+            self.assertEqual(database.count("intelligence_summaries"), 1)
+            self.assertGreaterEqual(database.count("intelligence_impacts"), 1)
+            self.assertEqual(database.count("isr_feeds"), 1)
+            self.assertGreaterEqual(database.count("conflicts"), 1)
+            self.assertGreaterEqual(database.count("recommendations"), 1)
+
     def test_web_server_can_be_constructed_with_static_root_and_database(self) -> None:
         with TemporaryDirectory() as tmp:
             database = SQLiteJINXDatabase(Path(tmp) / "jinx.sqlite3")
@@ -86,7 +127,11 @@ class WebDatabaseFrontendTests(TestCase):
         self.assertIn("/api/cop", (static_root / "app.js").read_text(encoding="utf-8"))
         self.assertIn("/api/sim/demo", (static_root / "app.js").read_text(encoding="utf-8"))
         self.assertIn("/api/operator-reports/review", (static_root / "app.js").read_text(encoding="utf-8"))
+        self.assertIn("/api/intelligence-summaries", (static_root / "app.js").read_text(encoding="utf-8"))
+        self.assertIn("/api/isr-feeds", (static_root / "app.js").read_text(encoding="utf-8"))
         self.assertIn("role-select", (static_root / "index.html").read_text(encoding="utf-8"))
+        self.assertIn("Core Conflict Packets", (static_root / "index.html").read_text(encoding="utf-8"))
+        self.assertIn("ISR Feed Display", (static_root / "index.html").read_text(encoding="utf-8"))
         self.assertIn(".map-grid", (static_root / "styles.css").read_text(encoding="utf-8"))
         self.assertIn(".module-grid", (static_root / "styles.css").read_text(encoding="utf-8"))
         self.assertIn(".review-row", (static_root / "styles.css").read_text(encoding="utf-8"))

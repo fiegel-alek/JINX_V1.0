@@ -6,7 +6,7 @@ from jinx.core.audit import AuditLog
 from jinx.core.policy import PolicyEngine
 from jinx.core.registry import build_default_registry
 from jinx.core.schemas import COPAdvisory, Location, OperatorReport
-from jinx.modules.c5isr import C5ISRReportIntake
+from jinx.modules.c5isr import C5ISREventClassifier, C5ISRReportIntake
 from tests.unit.helpers import confidence, provenance
 
 
@@ -53,6 +53,23 @@ class OperatorMiniC5ISRTests(TestCase):
         self.assertEqual(result.advisory.recipient_id, "operator-alpha")
         self.assertTrue(result.advisory.required_human_review)
         self.assertIn(report.id, result.advisory.related_report_ids)
+
+    def test_c5isr_classifier_detects_operator_mission_impact_categories(self) -> None:
+        classifier = C5ISREventClassifier()
+
+        comms_loss = classifier.classify_operator_report(
+            OperatorReportType.COMMUNICATIONS_CHECK,
+            "Synthetic report: communications lost and unavailable.",
+        )
+        movement_delay = classifier.classify_operator_report(
+            OperatorReportType.STATUS_UPDATE,
+            "Synthetic report: movement delayed at checkpoint.",
+        )
+
+        self.assertEqual(comms_loss.event_type, EventType.COMMUNICATIONS_LOSS)
+        self.assertIn("communications", comms_loss.mission_impact_tags)
+        self.assertEqual(movement_delay.event_type, EventType.MOVEMENT_DELAY)
+        self.assertIn("timeline", movement_delay.mission_impact_tags)
 
     def test_operator_mini_can_route_report_to_c5isr(self) -> None:
         registry = build_default_registry()

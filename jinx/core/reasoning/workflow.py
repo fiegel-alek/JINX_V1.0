@@ -59,6 +59,8 @@ class CoreReasoningWorkflow:
                 "explanation": conflict.explanation,
                 "confidence": str(conflict.confidence.value),
                 "human_review_role": conflict.recommended_review_role,
+                "likely_impacts": list(conflict.likely_impacts),
+                "potential_human_resolutions": list(conflict.potential_human_resolutions),
             },
             data_mode=DataMode.SYNTHETIC,
         )
@@ -79,6 +81,8 @@ class CoreReasoningWorkflow:
                 "text": recommendation.text,
                 "confidence": str(recommendation.confidence.value),
                 "required_human_review": str(recommendation.required_human_review),
+                "allowed_actions": list(recommendation.allowed_actions),
+                "brain_references": list(recommendation.brain_references),
             },
             data_mode=DataMode.SYNTHETIC,
         )

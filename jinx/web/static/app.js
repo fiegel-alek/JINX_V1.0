@@ -8,10 +8,15 @@ const els = {
   reportList: document.querySelector("#report-list"),
   advisoryList: document.querySelector("#advisory-list"),
   eventList: document.querySelector("#event-list"),
+  conflictList: document.querySelector("#conflict-list"),
+  recommendationList: document.querySelector("#recommendation-list"),
+  isrFeedList: document.querySelector("#isr-feed-list"),
   moduleList: document.querySelector("#module-list"),
   activityList: document.querySelector("#activity-list"),
   reportForm: document.querySelector("#report-form"),
   commandForm: document.querySelector("#command-form"),
+  intelForm: document.querySelector("#intel-form"),
+  isrFeedForm: document.querySelector("#isr-feed-form"),
   refreshButton: document.querySelector("#refresh-button"),
   demoButton: document.querySelector("#demo-button"),
   roleSelect: document.querySelector("#role-select"),
@@ -19,6 +24,8 @@ const els = {
     tracks: document.querySelector("#metric-tracks"),
     reports: document.querySelector("#metric-reports"),
     reviewQueue: document.querySelector("#metric-review-queue"),
+    conflicts: document.querySelector("#metric-conflicts"),
+    isrFeeds: document.querySelector("#metric-isr-feeds"),
     advisories: document.querySelector("#metric-advisories"),
     events: document.querySelector("#metric-events"),
   },
@@ -40,6 +47,13 @@ function requestHeaders(extra = {}) {
 
 async function getJSON(url) {
   const response = await fetch(url, { headers: requestHeaders() });
+  if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
+  return response.json();
+}
+
+async function getOptionalJSON(url, fallback) {
+  const response = await fetch(url, { headers: requestHeaders() });
+  if (response.status === 403) return fallback;
   if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
   return response.json();
 }
@@ -172,6 +186,44 @@ function renderEvents(events) {
   `);
 }
 
+function renderConflicts(conflicts) {
+  els.metrics.conflicts.textContent = conflicts.length;
+  document.querySelector("#conflict-count").textContent = conflicts.length;
+  renderList(els.conflictList, conflicts, "No conflicts", (conflict) => `
+    <article class="item conflict">
+      <strong>${escapeHTML(conflict.conflict_type)}</strong>
+      <span>${escapeHTML(conflict.explanation)}</span>
+      <span>confidence ${escapeHTML(conflict.confidence)} · review: ${escapeHTML(conflict.recommended_review_role)}</span>
+      <ul>${(conflict.potential_human_resolutions || []).map((item) => `<li>${escapeHTML(item)}</li>`).join("")}</ul>
+    </article>
+  `);
+}
+
+function renderRecommendations(recommendations) {
+  document.querySelector("#recommendation-count").textContent = recommendations.length;
+  renderList(els.recommendationList, recommendations, "No recommendations", (recommendation) => `
+    <article class="item recommendation">
+      <strong>${escapeHTML(recommendation.recommendation_type)}</strong>
+      <span>${escapeHTML(recommendation.text)}</span>
+      <span>Brain refs: ${escapeHTML((recommendation.brain_references || []).join(", ") || "none")}</span>
+      <ul>${(recommendation.allowed_actions || []).map((item) => `<li>${escapeHTML(item)}</li>`).join("")}</ul>
+    </article>
+  `);
+}
+
+function renderISRFeeds(feeds) {
+  els.metrics.isrFeeds.textContent = feeds.length;
+  document.querySelector("#isr-feed-count").textContent = feeds.length;
+  renderList(els.isrFeedList, feeds, "No ISR feeds", (feed) => `
+    <article class="item isr">
+      <strong>${escapeHTML(feed.feed_name)} · ${escapeHTML(feed.status)}</strong>
+      <span>${escapeHTML(feed.feed_type)} · ${escapeHTML(feed.coverage_area)} · confidence ${escapeHTML(feed.confidence)}</span>
+      <span>${escapeHTML(feed.summary)}</span>
+      <span>${escapeHTML(feed.data_mode)} · BUS delivered: ${escapeHTML(feed.delivered_to_bus)}</span>
+    </article>
+  `);
+}
+
 function renderModules(modules) {
   els.moduleList.innerHTML = modules.map((module) => `
     <article class="module-card">
@@ -195,12 +247,15 @@ function addActivity(text) {
 
 async function refreshDashboard() {
   try {
-    const [health, cop, reports, advisories, events, modules] = await Promise.all([
+    const [health, cop, reports, advisories, events, conflicts, recommendations, isrFeeds, modules] = await Promise.all([
       getJSON("/api/health"),
       getJSON("/api/cop"),
       getJSON("/api/operator-reports"),
       getJSON("/api/advisories"),
       getJSON("/api/events"),
+      getJSON("/api/conflicts"),
+      getJSON("/api/recommendations"),
+      getOptionalJSON("/api/isr-feeds", { isr_feeds: [] }),
       getJSON("/api/modules"),
     ]);
     setStatus(true, `${health.service} API online`);
@@ -208,6 +263,9 @@ async function refreshDashboard() {
     renderReports(reports.operator_reports || []);
     renderAdvisories(advisories.advisories || []);
     renderEvents(events.events || []);
+    renderConflicts(conflicts.conflicts || []);
+    renderRecommendations(recommendations.recommendations || []);
+    renderISRFeeds(isrFeeds.isr_feeds || []);
     renderModules(modules.modules || []);
   } catch (error) {
     setStatus(false, "API offline");
@@ -233,6 +291,30 @@ els.commandForm.addEventListener("submit", async (event) => {
   try {
     const response = await postJSON("/api/human-commands", data);
     addActivity(`Human input ${response.command_id} delivered: ${response.delivered}`);
+  } catch (error) {
+    addActivity(error.message);
+  }
+});
+
+els.intelForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const data = Object.fromEntries(new FormData(els.intelForm).entries());
+  try {
+    const response = await postJSON("/api/intelligence-summaries", data);
+    addActivity(`INTEL summary ${response.summary_id} generated ${response.events_generated} C5ISR events.`);
+    await refreshDashboard();
+  } catch (error) {
+    addActivity(error.message);
+  }
+});
+
+els.isrFeedForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const data = Object.fromEntries(new FormData(els.isrFeedForm).entries());
+  try {
+    const response = await postJSON("/api/isr-feeds", data);
+    addActivity(`ISR feed ${response.feed_id} delivered to BUS: ${response.delivered_to_bus}.`);
+    await refreshDashboard();
   } catch (error) {
     addActivity(error.message);
   }

@@ -14,11 +14,20 @@ from jinx.core.persistence import SQLiteJINXDatabase
 
 ROLE_PERMISSIONS = {
     "operator": frozenset({"operator_report:submit", "cop:read"}),
-    "commander": frozenset({"human_command:submit", "cop:read", "operator_report:review"}),
+    "commander": frozenset({"human_command:submit", "cop:read", "operator_report:review", "isr:read"}),
     "c5isr_manager": frozenset(
-        {"operator_report:submit", "operator_report:review", "cop:read", "sim:inject"}
+        {
+            "operator_report:submit",
+            "operator_report:review",
+            "cop:read",
+            "intel:submit",
+            "isr:read",
+            "isr:write",
+            "sim:inject",
+        }
     ),
-    "auditor": frozenset({"cop:read", "audit:read"}),
+    "intel_analyst": frozenset({"cop:read", "intel:submit", "isr:read", "isr:write"}),
+    "auditor": frozenset({"cop:read", "audit:read", "isr:read"}),
     "system_administrator": frozenset({"admin:all"}),
 }
 
@@ -64,6 +73,30 @@ class JINXRequestHandler(SimpleHTTPRequestHandler):
                 self._require_permission("cop:read")
                 self._send_json({"advisories": self.server.database.list_documents("cop_advisories")})
                 return
+            if parsed.path == "/api/conflicts":
+                self._require_permission("cop:read")
+                self._send_json({"conflicts": self.server.database.list_documents("conflicts")})
+                return
+            if parsed.path == "/api/recommendations":
+                self._require_permission("cop:read")
+                self._send_json({"recommendations": self.server.database.list_documents("recommendations")})
+                return
+            if parsed.path == "/api/intelligence-summaries":
+                self._require_permission("isr:read")
+                self._send_json(
+                    {"intelligence_summaries": self.server.database.list_documents("intelligence_summaries")}
+                )
+                return
+            if parsed.path == "/api/intelligence-impacts":
+                self._require_permission("isr:read")
+                self._send_json(
+                    {"intelligence_impacts": self.server.database.list_documents("intelligence_impacts")}
+                )
+                return
+            if parsed.path == "/api/isr-feeds":
+                self._require_permission("isr:read")
+                self._send_json({"isr_feeds": self.server.database.list_documents("isr_feeds")})
+                return
             if parsed.path == "/api/human-commands":
                 self._require_permission("cop:read")
                 self._send_json({"human_commands": self.server.database.list_documents("human_commands")})
@@ -105,6 +138,14 @@ class JINXRequestHandler(SimpleHTTPRequestHandler):
             if parsed.path == "/api/operator-reports/review":
                 self._require_permission("operator_report:review")
                 self._send_json(self.server.api_handlers.review_operator_report(payload), status=200)
+                return
+            if parsed.path == "/api/intelligence-summaries":
+                self._require_permission("intel:submit")
+                self._send_json(self.server.api_handlers.submit_intelligence_summary(payload), status=201)
+                return
+            if parsed.path == "/api/isr-feeds":
+                self._require_permission("isr:write")
+                self._send_json(self.server.api_handlers.submit_isr_feed_snapshot(payload), status=201)
                 return
             if parsed.path == "/api/sim/demo":
                 self._require_permission("sim:inject")
@@ -172,7 +213,34 @@ class JINXRequestHandler(SimpleHTTPRequestHandler):
             },
         )
         responses = [self.server.api_handlers.submit_operator_report(report) for report in demo_reports]
-        return {"injected": len(responses), "reports": responses}
+        intel_response = self.server.api_handlers.submit_intelligence_summary(
+            {
+                "source_category": "synthetic_isr_summary",
+                "summary": (
+                    "Synthetic ISR summary: weather visibility and communications assumptions may affect "
+                    "the current operator reports."
+                ),
+                "reliability": "0.72",
+                "related_locations": "grid-alpha,grid-bravo",
+                "related_entities": "operator-alpha,operator-bravo",
+            }
+        )
+        feed_response = self.server.api_handlers.submit_isr_feed_snapshot(
+            {
+                "feed_name": "Synthetic ISR Orbit Alpha",
+                "feed_type": "synthetic_full_motion_video",
+                "status": "available",
+                "coverage_area": "grid-alpha to grid-charlie",
+                "summary": "Synthetic ISR feed snapshot available for C5ISR review display.",
+                "related_locations": "grid-alpha,grid-charlie",
+            }
+        )
+        return {
+            "injected": len(responses),
+            "reports": responses,
+            "intel_summary": intel_response,
+            "isr_feed": feed_response,
+        }
 
 
 def run_server(

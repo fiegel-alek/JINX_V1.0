@@ -175,7 +175,7 @@ h2 {
 }
 
 .metrics {
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
 }
 
 .metric,
@@ -205,9 +205,12 @@ h2 {
   grid-template-columns: minmax(0, 1fr) 380px;
 }
 
-.operations,
 .data-grid.two {
   grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.operations {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .data-grid {
@@ -296,13 +299,36 @@ h2 {
   line-height: 1.4;
 }
 
+.item ul {
+  margin: 10px 0 0;
+  padding-left: 18px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
 .item.advisory {
   border-color: rgba(134, 220, 141, 0.55);
+}
+
+.item.conflict {
+  border-color: rgba(237, 122, 110, 0.55);
+}
+
+.item.recommendation,
+.item.isr {
+  border-color: rgba(118, 199, 214, 0.45);
 }
 
 .form {
   display: grid;
   gap: 10px;
+}
+
+.compact-form + .compact-form {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
 }
 
 .form-grid {

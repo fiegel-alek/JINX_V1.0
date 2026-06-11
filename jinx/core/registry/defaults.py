@@ -68,6 +68,7 @@ def default_module_manifests() -> tuple[ModuleManifest, ...]:
                     "human_command.v1",
                     "network_issue.v1",
                     "intel_impact.v1",
+                    "isr_feed.v1",
                     "cop_state.v1",
                 }
             ),
@@ -81,6 +82,7 @@ def default_module_manifests() -> tuple[ModuleManifest, ...]:
                     "human_command.v1",
                     "network_issue.v1",
                     "intel_impact.v1",
+                    "isr_feed.v1",
                     "cop_state.v1",
                 }
             ),
@@ -180,7 +182,7 @@ def default_module_manifests() -> tuple[ModuleManifest, ...]:
             licensed=True,
             license_scope="intel",
             allowed_inputs=frozenset({"event.v1"}),
-            allowed_outputs=frozenset({"event.v1", "conflict_packet.v1", "intel_impact.v1"}),
+            allowed_outputs=frozenset({"event.v1", "conflict_packet.v1", "intel_impact.v1", "isr_feed.v1"}),
             required_permissions=frozenset({"mock_adapter:read", "audit:write"}),
             capabilities=frozenset(
                 {
