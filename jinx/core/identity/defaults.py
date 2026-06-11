@@ -24,6 +24,8 @@ def build_default_access_control() -> AccessControl:
                 {
                     "operator_report:review",
                     "operator_report:submit",
+                    "audit:read",
+                    "brain:query",
                     "cop:read",
                     "cop:write",
                     "advisory:review",
@@ -48,12 +50,14 @@ def build_default_access_control() -> AccessControl:
         ),
         Role(
             name="intel_analyst",
-            permissions=frozenset({"intel:review", "intel:submit", "isr:read", "isr:write", "advisory:review"}),
+            permissions=frozenset(
+                {"brain:query", "intel:review", "intel:submit", "isr:read", "isr:write", "advisory:review"}
+            ),
             description="Reviews intelligence-derived summaries and impacts.",
         ),
         Role(
             name="auditor",
-            permissions=frozenset({"audit:read", "provenance:read"}),
+            permissions=frozenset({"audit:read", "brain:query", "provenance:read"}),
             description="Reviews audit and provenance trails.",
         ),
     ):

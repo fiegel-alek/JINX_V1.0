@@ -55,5 +55,41 @@ def build_synthetic_doctrine_repository() -> DoctrineRepository:
                 restrictions=("Synthetic training reference only.", "Does not authorize operational action."),
                 tags=frozenset({"isr", "fusion", "provenance", "display", "review"}),
             ),
+            DoctrineRecord(
+                title="Synthetic Core Explanation Checklist",
+                scope=DoctrineScope.REVIEW_CHECKLIST,
+                summary=(
+                    "Core outputs should identify contributing inputs, Brain references, confidence limits, "
+                    "recommended human review roles, allowed review actions, and disallowed operational actions."
+                ),
+                source="synthetic-doctrine-fixture",
+                applicability=("core explanation review", "recommendation review"),
+                restrictions=("Synthetic training reference only.", "Does not authorize operational action."),
+                tags=frozenset({"core", "explanation", "checklist", "review"}),
+            ),
+            DoctrineRecord(
+                title="Synthetic Confidence Calibration Note",
+                scope=DoctrineScope.MISSION_NOTE,
+                summary=(
+                    "Confidence bands should expose source quality, recency, corroboration, contradiction, "
+                    "completeness, and any observed confidence movement after new approved inputs arrive."
+                ),
+                source="synthetic-doctrine-fixture",
+                applicability=("confidence review", "analysis run audit"),
+                restrictions=("Synthetic training reference only.", "Does not authorize operational action."),
+                tags=frozenset({"confidence", "calibration", "audit", "review"}),
+            ),
+            DoctrineRecord(
+                title="Synthetic Boundary Review Lesson",
+                scope=DoctrineScope.LESSON_LEARNED,
+                summary=(
+                    "Cross-module outputs should reveal only licensed context and should record boundary "
+                    "redactions, denied routes, and dead letters for auditor review."
+                ),
+                source="synthetic-doctrine-fixture",
+                applicability=("boundary review", "module routing review"),
+                restrictions=("Synthetic training reference only.", "Does not authorize operational action."),
+                tags=frozenset({"boundary", "license", "audit", "review"}),
+            ),
         )
     )

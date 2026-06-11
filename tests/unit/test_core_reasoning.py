@@ -99,6 +99,10 @@ class CoreReasoningTests(TestCase):
 
         self.assertEqual(len(result.conflicts), 1)
         self.assertEqual(len(result.recommendations), 1)
+        self.assertEqual(len(result.explanations), 2)
+        self.assertIsNotNone(result.analysis_run)
+        self.assertEqual(result.analysis_run.confidence_summary.band, "medium")
+        self.assertTrue(result.analysis_run.human_review_required)
         self.assertTrue(result.recommendations[0].brain_references)
         self.assertEqual(len(result.route_results), 2)
         self.assertTrue(all(route.delivered for route in result.route_results))

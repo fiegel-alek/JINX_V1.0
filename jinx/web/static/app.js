@@ -16,6 +16,12 @@ const els = {
   timelineList: document.querySelector("#timeline-list"),
   conflictList: document.querySelector("#conflict-list"),
   recommendationList: document.querySelector("#recommendation-list"),
+  analysisRunList: document.querySelector("#analysis-run-list"),
+  explanationList: document.querySelector("#explanation-list"),
+  brainReferenceList: document.querySelector("#brain-reference-list"),
+  auditList: document.querySelector("#audit-list"),
+  provenanceList: document.querySelector("#provenance-list"),
+  boundaryList: document.querySelector("#boundary-list"),
   isrFeedList: document.querySelector("#isr-feed-list"),
   moduleList: document.querySelector("#module-list"),
   activityList: document.querySelector("#activity-list"),
@@ -23,6 +29,7 @@ const els = {
   commandForm: document.querySelector("#command-form"),
   intelForm: document.querySelector("#intel-form"),
   isrFeedForm: document.querySelector("#isr-feed-form"),
+  brainQueryForm: document.querySelector("#brain-query-form"),
   refreshButton: document.querySelector("#refresh-button"),
   demoButton: document.querySelector("#demo-button"),
   missionButton: document.querySelector("#mission-button"),
@@ -291,6 +298,74 @@ function renderRecommendations(recommendations) {
   `);
 }
 
+function renderAnalysisRuns(runs) {
+  document.querySelector("#analysis-run-count").textContent = runs.length;
+  renderList(els.analysisRunList, runs, "No analysis runs", (run) => `
+    <article class="item analysis">
+      <strong>${escapeHTML(run.id)} · ${escapeHTML(run.confidence_summary?.band || "unknown")}</strong>
+      <span>inputs ${escapeHTML((run.input_ids || []).length)} · outputs ${escapeHTML((run.output_ids || []).length)} · confidence ${escapeHTML(run.confidence_summary?.value)}</span>
+      <span>${escapeHTML((run.modules_consulted || []).join(", "))}</span>
+    </article>
+  `);
+}
+
+function renderExplanations(explanations) {
+  document.querySelector("#explanation-count").textContent = explanations.length;
+  renderList(els.explanationList, explanations, "No explanations", (explanation) => `
+    <article class="item explanation">
+      <strong>${escapeHTML(explanation.output_type)} · ${escapeHTML(explanation.output_id)}</strong>
+      <span>${escapeHTML(explanation.why_flagged)}</span>
+      <span>uncertainty: ${escapeHTML(explanation.uncertainty)}</span>
+      <span>review: ${escapeHTML(explanation.recommended_review_role)}</span>
+    </article>
+  `);
+}
+
+function renderBrainReferences(matches) {
+  document.querySelector("#brain-reference-count").textContent = matches.length;
+  renderList(els.brainReferenceList, matches, "No Brain references", (record) => `
+    <article class="item brain">
+      <strong>${escapeHTML(record.title)} · ${escapeHTML(record.scope)}</strong>
+      <span>${escapeHTML(record.summary)}</span>
+      <span>tags: ${escapeHTML((record.tags || []).join(", "))}</span>
+    </article>
+  `);
+}
+
+function renderAudit(records) {
+  document.querySelector("#audit-count").textContent = records.length;
+  renderList(els.auditList, records.slice(-10).reverse(), "No audit records", (record) => `
+    <article class="item audit">
+      <strong>${escapeHTML(record.event_type)} · ${escapeHTML(record.actor)}</strong>
+      <span>${escapeHTML(record.summary)}</span>
+    </article>
+  `);
+}
+
+function renderProvenance(records) {
+  document.querySelector("#provenance-count").textContent = records.length;
+  renderList(els.provenanceList, records.slice(-10).reverse(), "No provenance", (record) => `
+    <article class="item provenance">
+      <strong>${escapeHTML(record.processed_by_module)} · ${escapeHTML(record.source)}</strong>
+      <span>event ${escapeHTML(record.event_id)} · confidence ${escapeHTML(record.confidence)}</span>
+      <span>${escapeHTML((record.transformations || []).join(", "))}</span>
+    </article>
+  `);
+}
+
+function renderBoundaries(boundary) {
+  const modules = boundary.modules || [];
+  const routes = boundary.routes || [];
+  document.querySelector("#boundary-count").textContent = `${routes.length}/${modules.length}`;
+  renderList(els.boundaryList, modules.slice(0, 8), "No boundary data", (module) => `
+    <article class="item boundary">
+      <strong>${escapeHTML(module.name)} · ${escapeHTML(module.license_scope)}</strong>
+      <span>inputs ${escapeHTML((module.allowed_inputs || []).length)} · outputs ${escapeHTML((module.allowed_outputs || []).length)}</span>
+      <span>deps: ${escapeHTML((module.dependencies || []).join(", ") || "none")}</span>
+    </article>
+  `);
+}
+
 function renderISRFeeds(feeds) {
   els.metrics.isrFeeds.textContent = feeds.length;
   document.querySelector("#isr-feed-count").textContent = feeds.length;
@@ -348,6 +423,12 @@ async function refreshDashboard() {
       events,
       conflicts,
       recommendations,
+      analysisRuns,
+      explanations,
+      brainReferences,
+      audit,
+      provenance,
+      boundaries,
       isrFeeds,
       timeline,
       scenarios,
@@ -364,6 +445,12 @@ async function refreshDashboard() {
       getJSON("/api/events"),
       getJSON("/api/conflicts"),
       getJSON("/api/recommendations"),
+      getJSON("/api/core/analysis-runs"),
+      getJSON("/api/core/explanations"),
+      getJSON("/api/brain/references"),
+      getJSON("/api/core/audit"),
+      getJSON("/api/core/provenance"),
+      getJSON("/api/core/module-boundaries"),
       getOptionalJSON("/api/isr-feeds", { isr_feeds: [] }),
       getJSON("/api/timeline"),
       getJSON("/api/sim/c5isr-scenarios"),
@@ -380,6 +467,12 @@ async function refreshDashboard() {
     renderEvents(events.events || []);
     renderConflicts(conflicts.conflicts || []);
     renderRecommendations(recommendations.recommendations || []);
+    renderAnalysisRuns(analysisRuns.analysis_runs || []);
+    renderExplanations(explanations.explanations || []);
+    renderBrainReferences(brainReferences.matches || []);
+    renderAudit(audit.audit_records || []);
+    renderProvenance(provenance.provenance || []);
+    renderBoundaries(boundaries);
     renderISRFeeds(isrFeeds.isr_feeds || []);
     renderTimeline(timeline.timeline || []);
     renderScenarioPacks(scenarios.scenario_packs || []);
@@ -432,6 +525,18 @@ els.isrFeedForm.addEventListener("submit", async (event) => {
     const response = await postJSON("/api/isr-feeds", data);
     addActivity(`ISR feed ${response.feed_id} delivered to BUS: ${response.delivered_to_bus}.`);
     await refreshDashboard();
+  } catch (error) {
+    addActivity(error.message);
+  }
+});
+
+els.brainQueryForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const data = Object.fromEntries(new FormData(els.brainQueryForm).entries());
+  try {
+    const response = await postJSON("/api/brain/query", data);
+    renderBrainReferences(response.matches || []);
+    addActivity(`Brain returned ${(response.matches || []).length} references.`);
   } catch (error) {
     addActivity(error.message);
   }

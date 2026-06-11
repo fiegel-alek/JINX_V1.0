@@ -18,6 +18,8 @@ ROLE_PERMISSIONS = {
     "commander": frozenset({"human_command:submit", "cop:read", "operator_report:review", "isr:read"}),
     "c5isr_manager": frozenset(
         {
+            "audit:read",
+            "brain:query",
             "operator_report:submit",
             "operator_report:review",
             "cop:read",
@@ -29,8 +31,8 @@ ROLE_PERMISSIONS = {
             "sim:inject",
         }
     ),
-    "intel_analyst": frozenset({"cop:read", "intel:submit", "isr:read", "isr:write"}),
-    "auditor": frozenset({"cop:read", "audit:read", "isr:read"}),
+    "intel_analyst": frozenset({"brain:query", "cop:read", "intel:submit", "isr:read", "isr:write"}),
+    "auditor": frozenset({"audit:read", "brain:query", "cop:read", "isr:read"}),
     "system_administrator": frozenset({"admin:all"}),
 }
 
@@ -107,6 +109,30 @@ class JINXRequestHandler(SimpleHTTPRequestHandler):
             if parsed.path == "/api/recommendations":
                 self._require_permission("cop:read")
                 self._send_json({"recommendations": self.server.database.list_documents("recommendations")})
+                return
+            if parsed.path == "/api/core/analysis-runs":
+                self._require_permission("cop:read")
+                self._send_json(self.server.api_handlers.service.analysis_runs_document())
+                return
+            if parsed.path == "/api/core/explanations":
+                self._require_permission("cop:read")
+                self._send_json(self.server.api_handlers.service.explanations_document())
+                return
+            if parsed.path == "/api/core/audit":
+                self._require_permission("audit:read")
+                self._send_json(self.server.api_handlers.service.audit_document())
+                return
+            if parsed.path == "/api/core/provenance":
+                self._require_permission("audit:read")
+                self._send_json(self.server.api_handlers.service.provenance_document())
+                return
+            if parsed.path == "/api/core/module-boundaries":
+                self._require_permission("audit:read")
+                self._send_json(self.server.api_handlers.service.module_boundary_document())
+                return
+            if parsed.path == "/api/brain/references":
+                self._require_permission("brain:query")
+                self._send_json(self.server.api_handlers.query_brain({"tags": "review"}))
                 return
             if parsed.path == "/api/intelligence-summaries":
                 self._require_permission("isr:read")
@@ -198,6 +224,10 @@ class JINXRequestHandler(SimpleHTTPRequestHandler):
             if parsed.path == "/api/isr-feeds":
                 self._require_permission("isr:write")
                 self._send_json(self.server.api_handlers.submit_isr_feed_snapshot(payload), status=201)
+                return
+            if parsed.path == "/api/brain/query":
+                self._require_permission("brain:query")
+                self._send_json(self.server.api_handlers.query_brain(payload), status=200)
                 return
             if parsed.path == "/api/sim/demo":
                 self._require_permission("sim:inject")

@@ -141,6 +141,12 @@ class JINXAPIHandlers:
         )
         return {"track": track}
 
+    def query_brain(self, payload: dict[str, str]) -> dict[str, object]:
+        return self.service.brain_query_document(
+            query=payload.get("query", ""),
+            tags=self._csv_tuple(payload.get("tags", "")),
+        )
+
     @staticmethod
     def _synthetic_confidence() -> ConfidenceScore:
         return ConfidenceScore(

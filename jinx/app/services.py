@@ -3,12 +3,14 @@
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
+from jinx.brain.knowledge.defaults import build_synthetic_doctrine_repository
+from jinx.brain.knowledge.repository import DoctrineRepository
 from jinx.bus import FabricMessage, MessageRouter, RouteResult
 from jinx.common.types import DataMode
 from jinx.core.audit import AuditLog
 from jinx.core.policy import PolicyEngine
 from jinx.core.persistence import SQLiteJINXDatabase
-from jinx.core.reasoning import CoreReasoningWorkflow
+from jinx.core.reasoning import CoreReasoningResult, CoreReasoningWorkflow
 from jinx.core.registry import build_default_registry
 from jinx.core.schemas import (
     ConflictPacket,
@@ -50,6 +52,7 @@ class JINXApplicationService:
         self.c5isr_intake = C5ISRReportIntake()
         self.cop_manager = COPManager(name="jinx-phase3-cop")
         self.core_reasoning = CoreReasoningWorkflow(self.router)
+        self.brain_repository: DoctrineRepository = build_synthetic_doctrine_repository()
         self.intel_fusion = IntelligenceFusionEngine()
         self.mission_impact_analyzer = MissionImpactAnalyzer()
         self.mission_context: MissionContext | None = None
@@ -343,6 +346,103 @@ class JINXApplicationService:
             ]
         }
 
+    def brain_query_document(self, query: str = "", tags: tuple[str, ...] = ()) -> dict[str, object]:
+        search = self.brain_repository.search(query, tags=frozenset(tags))
+        return {
+            "query": search.query,
+            "matches": [
+                {
+                    "id": record.id,
+                    "title": record.title,
+                    "scope": record.scope.value,
+                    "summary": record.summary,
+                    "source": record.source,
+                    "applicability": list(record.applicability),
+                    "restrictions": list(record.restrictions),
+                    "tags": sorted(record.tags),
+                }
+                for record in search.matches
+            ],
+        }
+
+    def analysis_runs_document(self) -> dict[str, object]:
+        return {"analysis_runs": self.database.list_documents("analysis_runs") if self.database else []}
+
+    def explanations_document(self) -> dict[str, object]:
+        return {"explanations": self.database.list_documents("explanations") if self.database else []}
+
+    def audit_document(self) -> dict[str, object]:
+        return {
+            "audit_records": [
+                {
+                    "id": record.id,
+                    "event_type": record.event_type.value,
+                    "actor": record.actor,
+                    "summary": record.summary,
+                    "metadata": dict(record.metadata),
+                    "timestamp": record.timestamp.isoformat(),
+                }
+                for record in self.audit_log.records()
+            ]
+        }
+
+    def provenance_document(self) -> dict[str, object]:
+        provenance = []
+        for event in self._events:
+            provenance.append(
+                {
+                    "id": f"prov-{event.id}",
+                    "source": event.provenance.source,
+                    "processed_by_module": event.provenance.processed_by_module,
+                    "transformations": list(event.provenance.transformations),
+                    "confidence": event.provenance.confidence.value,
+                    "time_received": event.provenance.time_received.isoformat(),
+                    "event_id": event.id,
+                }
+            )
+        return {"provenance": provenance}
+
+    def module_boundary_document(self) -> dict[str, object]:
+        registry = build_default_registry()
+        modules = registry.licensed_modules()
+        delivered = self.router.delivered_messages()
+        dead_letters = self.router.dead_letters()
+        return {
+            "modules": [
+                {
+                    "name": module.name,
+                    "license_scope": module.license_scope,
+                    "allowed_inputs": sorted(module.allowed_inputs),
+                    "allowed_outputs": sorted(module.allowed_outputs),
+                    "dependencies": sorted(module.dependencies),
+                    "supports_simulation": module.supports_simulation,
+                }
+                for module in modules
+            ],
+            "routes": [
+                {
+                    "id": message.id,
+                    "source_module": message.source_module,
+                    "destination": message.destination,
+                    "payload_schema": message.payload_schema,
+                    "license_scope": message.license_scope,
+                    "status": "delivered",
+                }
+                for message in delivered
+            ],
+            "dead_letters": [
+                {
+                    "id": message.id,
+                    "source_module": message.source_module,
+                    "destination": message.destination,
+                    "payload_schema": message.payload_schema,
+                    "license_scope": message.license_scope,
+                    "status": "denied",
+                }
+                for message in dead_letters
+            ],
+        }
+
     @staticmethod
     def layer_config_document() -> dict[str, object]:
         return {
@@ -474,22 +574,60 @@ class JINXApplicationService:
         if intake.event.location is not None:
             self.database.save_document("cop_states", "latest", self.cop_state_document())
 
-    def _run_core_analysis(self) -> object | None:
+    def _run_core_analysis(self) -> CoreReasoningResult | None:
         if not self._events:
             return None
         result = self.core_reasoning.review_events(tuple(self._events))
-        self._persist_core_analysis(result.conflicts, result.recommendations)
+        self._persist_core_analysis(result)
         self._persist_mission_impacts(self._mission_impacts())
         return result
 
-    def _persist_core_analysis(
-        self,
-        conflicts: tuple[ConflictPacket, ...],
-        recommendations: tuple[Recommendation, ...],
-    ) -> None:
+    def _persist_core_analysis(self, result: CoreReasoningResult) -> None:
         if self.database is None:
             return
-        for conflict in conflicts:
+        if result.analysis_run is not None:
+            summary = result.analysis_run.confidence_summary
+            self.database.save_document(
+                "analysis_runs",
+                result.analysis_run.id,
+                {
+                    "id": result.analysis_run.id,
+                    "input_ids": list(result.analysis_run.input_ids),
+                    "modules_consulted": list(result.analysis_run.modules_consulted),
+                    "confidence_summary": {
+                        "value": summary.value,
+                        "band": summary.band,
+                        "rationale": summary.rationale,
+                        "source_quality": summary.source_quality,
+                        "recency_factor": summary.recency_factor,
+                        "corroboration_factor": summary.corroboration_factor,
+                        "contradiction_factor": summary.contradiction_factor,
+                        "completeness_factor": summary.completeness_factor,
+                        "delta": summary.delta,
+                    },
+                    "output_ids": list(result.analysis_run.output_ids),
+                    "human_review_required": result.analysis_run.human_review_required,
+                    "timestamp": result.analysis_run.timestamp.isoformat(),
+                },
+            )
+        for explanation in result.explanations:
+            self.database.save_document(
+                "explanations",
+                explanation.id,
+                {
+                    "id": explanation.id,
+                    "output_id": explanation.output_id,
+                    "output_type": explanation.output_type,
+                    "why_flagged": explanation.why_flagged,
+                    "contributing_inputs": list(explanation.contributing_inputs),
+                    "brain_references": list(explanation.brain_references),
+                    "uncertainty": explanation.uncertainty,
+                    "recommended_review_role": explanation.recommended_review_role,
+                    "allowed_actions": list(explanation.allowed_actions),
+                    "disallowed_actions": list(explanation.disallowed_actions),
+                },
+            )
+        for conflict in result.conflicts:
             self.database.save_document(
                 "conflicts",
                 conflict.id,
@@ -507,7 +645,7 @@ class JINXApplicationService:
                     "timestamp": conflict.timestamp.isoformat(),
                 },
             )
-        for recommendation in recommendations:
+        for recommendation in result.recommendations:
             self.database.save_document(
                 "recommendations",
                 recommendation.id,

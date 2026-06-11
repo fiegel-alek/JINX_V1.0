@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from jinx.bus import FabricMessage, MessageRouter, RouteResult
 from jinx.common.types import DataMode
 from jinx.core.reasoning.detector import CoreConflictDetector
+from jinx.core.reasoning.models import CoreAnalysisRun, ExplanationArtifact, confidence_summary_from_score
 from jinx.core.reasoning.recommender import CoreRecommendationEngine
 from jinx.core.schemas import ConflictPacket, Event, Recommendation
 
@@ -14,6 +15,8 @@ class CoreReasoningResult:
     conflicts: tuple[ConflictPacket, ...]
     recommendations: tuple[Recommendation, ...]
     route_results: tuple[RouteResult, ...]
+    explanations: tuple[ExplanationArtifact, ...] = ()
+    analysis_run: CoreAnalysisRun | None = None
 
 
 class CoreReasoningWorkflow:
@@ -41,7 +44,70 @@ class CoreReasoningWorkflow:
                 self._router.route(self._recommendation_message(recommendation, destination))
             )
 
-        return CoreReasoningResult(conflicts, recommendations, tuple(route_results))
+        explanations = self._explanations(conflicts, recommendations)
+        analysis_run = self._analysis_run(events, conflicts, recommendations)
+        return CoreReasoningResult(
+            conflicts,
+            recommendations,
+            tuple(route_results),
+            explanations=explanations,
+            analysis_run=analysis_run,
+        )
+
+    @staticmethod
+    def _explanations(
+        conflicts: tuple[ConflictPacket, ...],
+        recommendations: tuple[Recommendation, ...],
+    ) -> tuple[ExplanationArtifact, ...]:
+        artifacts: list[ExplanationArtifact] = []
+        for conflict in conflicts:
+            artifacts.append(
+                ExplanationArtifact(
+                    output_id=conflict.id,
+                    output_type="conflict_packet",
+                    why_flagged=conflict.explanation,
+                    contributing_inputs=conflict.conflicting_items,
+                    brain_references=(),
+                    uncertainty="Core preserved conflicting claims and did not decide truth.",
+                    recommended_review_role=conflict.recommended_review_role,
+                    allowed_actions=conflict.potential_human_resolutions,
+                    disallowed_actions=(
+                        "Do not issue operational orders.",
+                        "Do not treat this as a final decision.",
+                    ),
+                )
+            )
+        for recommendation in recommendations:
+            artifacts.append(
+                ExplanationArtifact(
+                    output_id=recommendation.id,
+                    output_type="recommendation",
+                    why_flagged=recommendation.rationale,
+                    contributing_inputs=tuple(record.source for record in recommendation.provenance_chain),
+                    brain_references=recommendation.brain_references,
+                    uncertainty="Recommendation remains advisory and requires human review.",
+                    recommended_review_role="human reviewer",
+                    allowed_actions=recommendation.allowed_actions,
+                    disallowed_actions=recommendation.disallowed_actions,
+                )
+            )
+        return tuple(artifacts)
+
+    @staticmethod
+    def _analysis_run(
+        events: tuple[Event, ...],
+        conflicts: tuple[ConflictPacket, ...],
+        recommendations: tuple[Recommendation, ...],
+    ) -> CoreAnalysisRun:
+        scores = [item.confidence for item in (*conflicts, *recommendations)]
+        score = scores[0] if scores else events[0].confidence
+        return CoreAnalysisRun(
+            input_ids=tuple(event.id for event in events),
+            modules_consulted=("jinx-core", "jinx-brain", "jinx-c5isr"),
+            confidence_summary=confidence_summary_from_score(score),
+            output_ids=tuple(item.id for item in (*conflicts, *recommendations)),
+            human_review_required=True,
+        )
 
     @staticmethod
     def _conflict_message(conflict: ConflictPacket, destination: str) -> FabricMessage:

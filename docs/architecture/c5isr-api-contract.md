@@ -31,6 +31,12 @@ Roles:
 - `GET /api/advisories`
 - `GET /api/conflicts`
 - `GET /api/recommendations`
+- `GET /api/core/analysis-runs`
+- `GET /api/core/explanations`
+- `GET /api/core/audit`
+- `GET /api/core/provenance`
+- `GET /api/core/module-boundaries`
+- `GET /api/brain/references`
 - `GET /api/intelligence-summaries`
 - `GET /api/intelligence-impacts`
 - `GET /api/isr-feeds`
@@ -46,6 +52,7 @@ Roles:
 - `POST /api/mission-context`
 - `POST /api/intelligence-summaries`
 - `POST /api/isr-feeds`
+- `POST /api/brain/query`
 - `POST /api/human-commands`
 - `POST /api/sim/demo`
 
@@ -56,6 +63,8 @@ C5ISR outputs remain advisory:
 - Conflict packets preserve uncertainty.
 - Mission impact packets identify possible affected tasks, routes, areas, and assumptions.
 - Recommendations include human review paths and Brain reference IDs.
+- Core analysis runs record inputs, consulted modules, confidence bands, output IDs, and human-review requirements.
+- Explanation artifacts identify why an output was flagged, contributing inputs, uncertainty, allowed actions, and disallowed actions.
 - COP track validation is human-originated.
 - ISR feed snapshots are display snapshots only, not collection tasking or live control.
 
