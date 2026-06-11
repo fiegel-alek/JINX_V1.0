@@ -615,6 +615,25 @@ class JINXApplicationService:
     def network_advisories_document(self) -> dict[str, object]:
         return {"network_advisories": self.database.list_documents("network_advisories") if self.database else []}
 
+    def intelligence_summaries_document(self) -> dict[str, object]:
+        return {
+            "intelligence_summaries": self.database.list_documents("intelligence_summaries") if self.database else []
+        }
+
+    def intelligence_impacts_document(self) -> dict[str, object]:
+        return {"intelligence_impacts": self.database.list_documents("intelligence_impacts") if self.database else []}
+
+    def intelligence_correlations_document(self) -> dict[str, object]:
+        return {"intel_correlations": self.database.list_documents("intel_correlations") if self.database else []}
+
+    def intelligence_module_notices_document(self) -> dict[str, object]:
+        return {
+            "intel_module_notices": self.database.list_documents("intel_module_notices") if self.database else []
+        }
+
+    def isr_feeds_document(self) -> dict[str, object]:
+        return {"isr_feeds": self.database.list_documents("isr_feeds") if self.database else []}
+
     def fabric_monitor_document(self) -> dict[str, object]:
         self._sync_fabric_ledger()
         if self.database is None:
@@ -769,6 +788,9 @@ class JINXApplicationService:
                 "policy_decisions": self.database.count("policy_decisions"),
                 "network_plans": self.database.count("network_plans"),
                 "network_issues": self.database.count("network_issues"),
+                "intelligence_summaries": self.database.count("intelligence_summaries"),
+                "intelligence_impacts": self.database.count("intelligence_impacts"),
+                "intel_correlations": self.database.count("intel_correlations"),
                 "simulation_runs": self.database.count("simulation_runs"),
                 "fabric_messages": self.database.count("fabric_messages"),
                 "fabric_dead_letters": self.database.count("fabric_dead_letters"),
@@ -1592,6 +1614,46 @@ class JINXApplicationService:
                     "delivered_to_core": delivered_by_impact.get(impact.id, False),
                 },
             )
+            affected_modules = self._affected_modules_for_intel_impact(impact.impacted_area)
+            correlation_id = f"intel-correlation-{summary.id}-{impact.id}"
+            self.database.save_document(
+                "intel_correlations",
+                correlation_id,
+                {
+                    "id": correlation_id,
+                    "intel_summary_id": summary.id,
+                    "intel_impact_id": impact.id,
+                    "source_category": summary.source_category,
+                    "impacted_area": impact.impacted_area,
+                    "summary": impact.summary,
+                    "related_entities": list(summary.related_entities),
+                    "related_locations": list(summary.related_locations),
+                    "affected_modules": list(affected_modules),
+                    "confidence": impact.confidence.value,
+                    "reliability": summary.reliability,
+                    "restrictions": list(summary.restrictions),
+                    "recommended_review_role": "intel analyst",
+                    "required_human_review": True,
+                    "delivered_to_core": delivered_by_impact.get(impact.id, False),
+                    "timestamp": summary.timestamp.isoformat(),
+                },
+            )
+            for module in affected_modules:
+                notice_id = f"intel-notice-{summary.id}-{impact.id}-{module}"
+                self.database.save_document(
+                    "intel_module_notices",
+                    notice_id,
+                    {
+                        "id": notice_id,
+                        "module": module,
+                        "intel_summary_id": summary.id,
+                        "intel_impact_id": impact.id,
+                        "summary": f"{module} review notice: {impact.summary}",
+                        "confidence": impact.confidence.value,
+                        "required_human_review": True,
+                        "delivered_to_core": delivered_by_impact.get(impact.id, False),
+                    },
+                )
         for event in events:
             self.database.save_document(
                 "events",
@@ -1648,6 +1710,14 @@ class JINXApplicationService:
                 impact.summary,
                 {"impact_id": impact.id, "impacted_area": impact.impacted_area},
             )
+
+    @staticmethod
+    def _affected_modules_for_intel_impact(impacted_area: str) -> tuple[str, ...]:
+        if impacted_area == "weather_constraints":
+            return ("jinx-c5isr", "jinx-net", "jinx-sim")
+        if impacted_area == "communications_assumptions":
+            return ("jinx-c5isr", "jinx-net")
+        return ("jinx-core", "jinx-brain")
 
     @staticmethod
     def _mission_document(mission: MissionContext) -> dict[str, object]:

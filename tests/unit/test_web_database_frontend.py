@@ -113,6 +113,8 @@ class WebDatabaseFrontendTests(TestCase):
             self.assertTrue(feed_response["delivered_to_bus"])
             self.assertEqual(database.count("intelligence_summaries"), 1)
             self.assertGreaterEqual(database.count("intelligence_impacts"), 1)
+            self.assertGreaterEqual(database.count("intel_correlations"), 1)
+            self.assertGreaterEqual(database.count("intel_module_notices"), 1)
             self.assertEqual(database.count("isr_feeds"), 1)
             self.assertGreaterEqual(database.count("conflicts"), 1)
             self.assertGreaterEqual(database.count("recommendations"), 1)
@@ -247,6 +249,11 @@ class WebDatabaseFrontendTests(TestCase):
         self.assertIn(".map-grid", (static_root / "styles.css").read_text(encoding="utf-8"))
         self.assertIn(".module-grid", (static_root / "styles.css").read_text(encoding="utf-8"))
         self.assertIn(".review-row", (static_root / "styles.css").read_text(encoding="utf-8"))
+        self.assertIn("JINX-INTEL Fusion Desk", (static_root / "intel.html").read_text(encoding="utf-8"))
+        self.assertIn("/api/intel/summaries", (static_root / "intel_app.js").read_text(encoding="utf-8"))
+        self.assertIn("/api/intel/correlations", (static_root / "intel_app.js").read_text(encoding="utf-8"))
+        self.assertIn("/api/intel/module-notices", (static_root / "intel_app.js").read_text(encoding="utf-8"))
+        self.assertIn("/api/intel/isr-feeds", (static_root / "intel_app.js").read_text(encoding="utf-8"))
 
     def test_package_specific_frontend_surfaces_are_separated(self) -> None:
         static_root = Path("jinx/web/static")
@@ -254,6 +261,8 @@ class WebDatabaseFrontendTests(TestCase):
         c5isr_js = (static_root / "c5isr_app.js").read_text(encoding="utf-8")
         net_html = (static_root / "net.html").read_text(encoding="utf-8")
         net_js = (static_root / "net_app.js").read_text(encoding="utf-8")
+        intel_html = (static_root / "intel.html").read_text(encoding="utf-8")
+        intel_js = (static_root / "intel_app.js").read_text(encoding="utf-8")
 
         self.assertIn("Common Operational Picture", c5isr_html)
         self.assertIn("/api/cop", c5isr_js)
@@ -271,6 +280,17 @@ class WebDatabaseFrontendTests(TestCase):
         self.assertNotIn("/api/cop", net_js)
         self.assertNotIn("Common Operational Picture", net_html + net_js)
         self.assertNotIn("Operator Report", net_html + net_js)
+
+        self.assertIn("JINX-INTEL Fusion Desk", intel_html)
+        self.assertIn("/api/intel/summaries", intel_js)
+        self.assertIn("/api/intel/correlations", intel_js)
+        self.assertIn("/api/intel/module-notices", intel_js)
+        self.assertIn("/api/intel/isr-feeds", intel_js)
+        self.assertNotIn("/api/cop", intel_js)
+        self.assertNotIn("/api/net", intel_js)
+        self.assertNotIn("/api/operator-reports", intel_js)
+        self.assertNotIn("Common Operational Picture", intel_html + intel_js)
+        self.assertNotIn("Network Manager", intel_html + intel_js)
 
     def test_web_request_handler_enforces_role_permissions(self) -> None:
         handler = JINXRequestHandler.__new__(JINXRequestHandler)
@@ -309,6 +329,14 @@ class WebDatabaseFrontendTests(TestCase):
         with self.assertRaises(PermissionError):
             handler._require_permission("cop:read")
 
+        handler.headers = {"X-JINX-Role": "intel_analyst", "X-JINX-Package": "intel"}
+        handler._require_permission("isr:read")
+        handler._require_permission("intel:submit")
+        with self.assertRaises(PermissionError):
+            handler._require_permission("cop:read")
+        with self.assertRaises(PermissionError):
+            handler._require_permission("net:read")
+
     def test_web_request_handler_maps_package_app_routes(self) -> None:
         self.assertEqual(JINXRequestHandler._app_path("/apps/ops"), "/index.html")
         self.assertEqual(JINXRequestHandler._app_path("/ops"), "/index.html")
@@ -316,6 +344,8 @@ class WebDatabaseFrontendTests(TestCase):
         self.assertEqual(JINXRequestHandler._app_path("/c5isr"), "/c5isr.html")
         self.assertEqual(JINXRequestHandler._app_path("/apps/net"), "/net.html")
         self.assertEqual(JINXRequestHandler._app_path("/net"), "/net.html")
+        self.assertEqual(JINXRequestHandler._app_path("/apps/intel"), "/intel.html")
+        self.assertEqual(JINXRequestHandler._app_path("/intel"), "/intel.html")
         self.assertIsNone(JINXRequestHandler._app_path("/unknown"))
 
     def test_c5isr_package_redacts_net_specific_payload_details(self) -> None:

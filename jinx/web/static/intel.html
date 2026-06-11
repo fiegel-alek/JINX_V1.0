@@ -1,0 +1,225 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>JINX-INTEL Fusion Desk</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <aside class="nav-rail" aria-label="JINX-INTEL">
+        <div class="brand">
+          <span class="brand-mark">JI</span>
+          <div>
+            <strong>JINX-INTEL</strong>
+            <small>Fusion Desk</small>
+          </div>
+        </div>
+        <nav>
+          <a href="#intake">Intake</a>
+          <a href="#correlation">Correlation</a>
+          <a href="#brain">BRAIN</a>
+        </nav>
+        <div class="rail-note">
+          <span id="api-status" class="status-dot"></span>
+          <span id="api-status-text">Checking API</span>
+        </div>
+      </aside>
+
+      <section class="main">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">INTEL package</p>
+            <h1>Fusion Desk</h1>
+          </div>
+          <div class="top-actions">
+            <label class="role-picker">
+              Active role
+              <select id="role-select">
+                <option value="intel_analyst" selected>INTEL analyst</option>
+                <option value="auditor">Auditor</option>
+                <option value="system_administrator">System administrator</option>
+              </select>
+            </label>
+            <button id="refresh-button" type="button">Refresh</button>
+          </div>
+        </header>
+
+        <section class="metrics" aria-label="INTEL metrics">
+          <article class="metric">
+            <span>Summaries</span>
+            <strong id="metric-summaries">0</strong>
+          </article>
+          <article class="metric">
+            <span>Impacts</span>
+            <strong id="metric-impacts">0</strong>
+          </article>
+          <article class="metric">
+            <span>Correlations</span>
+            <strong id="metric-correlations">0</strong>
+          </article>
+          <article class="metric">
+            <span>Notices</span>
+            <strong id="metric-notices">0</strong>
+          </article>
+        </section>
+
+        <section class="operations" id="intake">
+          <section class="panel">
+            <div class="section-head">
+              <h2>Intelligence Summary</h2>
+              <span>Synthetic or authorized</span>
+            </div>
+            <form id="intel-summary-form" class="form">
+              <div class="form-grid">
+                <label>
+                  Source
+                  <input name="source_category" value="synthetic_isr_summary" required />
+                </label>
+                <label>
+                  Reliability
+                  <input name="reliability" value="0.78" required />
+                </label>
+              </div>
+              <label>
+                Summary
+                <textarea name="summary" required>Synthetic weather visibility and communications pattern changes may affect Route Alpha planning assumptions.</textarea>
+              </label>
+              <div class="form-grid">
+                <label>
+                  Related Locations
+                  <input name="related_locations" value="Route Alpha,Area Alpha" />
+                </label>
+                <label>
+                  Related Entities
+                  <input name="related_entities" value="operator-alpha,operator-bravo" />
+                </label>
+              </div>
+              <button type="submit">Publish Summary</button>
+            </form>
+          </section>
+
+          <section class="panel">
+            <div class="section-head">
+              <h2>ISR Feed Snapshot</h2>
+              <span>Controlled plugin path</span>
+            </div>
+            <form id="isr-feed-form" class="form">
+              <div class="form-grid">
+                <label>
+                  Feed
+                  <input name="feed_name" value="Synthetic ISR Orbit Alpha" required />
+                </label>
+                <label>
+                  Status
+                  <select name="status">
+                    <option value="available">Available</option>
+                    <option value="degraded">Degraded</option>
+                    <option value="offline">Offline</option>
+                  </select>
+                </label>
+              </div>
+              <div class="form-grid">
+                <label>
+                  Feed Type
+                  <input name="feed_type" value="synthetic_full_motion_video" required />
+                </label>
+                <label>
+                  Coverage
+                  <input name="coverage_area" value="grid-alpha to grid-charlie" required />
+                </label>
+              </div>
+              <label>
+                Summary
+                <textarea name="summary" required>Synthetic ISR feed snapshot available for analyst review and module impact mapping.</textarea>
+              </label>
+              <button type="submit">Publish ISR Feed</button>
+            </form>
+          </section>
+        </section>
+
+        <section class="data-grid" id="correlation">
+          <section class="panel">
+            <div class="section-head">
+              <h2>Summaries</h2>
+              <span id="summary-count">0</span>
+            </div>
+            <div id="summary-list" class="list empty">No summaries</div>
+          </section>
+          <section class="panel">
+            <div class="section-head">
+              <h2>Impacts</h2>
+              <span id="impact-count">0</span>
+            </div>
+            <div id="impact-list" class="list empty">No impacts</div>
+          </section>
+          <section class="panel">
+            <div class="section-head">
+              <h2>ISR Feeds</h2>
+              <span id="feed-count">0</span>
+            </div>
+            <div id="feed-list" class="list empty">No ISR feeds</div>
+          </section>
+        </section>
+
+        <section class="data-grid two">
+          <section class="panel">
+            <div class="section-head">
+              <h2>Correlation Packets</h2>
+              <span id="correlation-count">0</span>
+            </div>
+            <div id="correlation-list" class="list empty">No correlation packets</div>
+          </section>
+          <section class="panel">
+            <div class="section-head">
+              <h2>Affected Module Notices</h2>
+              <span id="notice-count">0</span>
+            </div>
+            <div id="notice-list" class="list empty">No module notices</div>
+          </section>
+        </section>
+
+        <section class="data-grid two" id="brain">
+          <section class="panel">
+            <div class="section-head">
+              <h2>JINX-BRAIN Chat</h2>
+              <span id="brain-chat-count">0</span>
+            </div>
+            <form id="brain-chat-form" class="form">
+              <label>
+                Question
+                <textarea name="text" required>What should an analyst review before promoting a synthetic intelligence correlation into a planning assumption?</textarea>
+              </label>
+              <input type="hidden" name="user_id" value="intel-analyst-alpha" />
+              <input type="hidden" name="use_core_reachback" value="true" />
+              <button type="submit">Ask BRAIN</button>
+            </form>
+            <div id="brain-chat-list" class="list empty">No Brain chat yet</div>
+          </section>
+          <section class="panel">
+            <div class="section-head">
+              <h2>Analyst Guardrails</h2>
+              <span>Advisory only</span>
+            </div>
+            <div id="guardrail-list" class="list">
+              <article class="item">
+                <strong>Restrictions stay visible</strong>
+                <span>Source category, reliability, and restrictions are preserved for every summary.</span>
+              </article>
+              <article class="item">
+                <strong>No collector retasking</strong>
+                <span>INTEL contextualizes authorized inputs and does not collect, command, or retask.</span>
+              </article>
+              <article class="item">
+                <strong>Human review required</strong>
+                <span>Correlation packets remain advisory and feed human review rather than final threat truth.</span>
+              </article>
+            </div>
+          </section>
+        </section>
+      </section>
+    </main>
+    <script src="/intel_app.js"></script>
+  </body>
+</html>

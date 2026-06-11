@@ -59,7 +59,7 @@ PACKAGE_PROFILES = {
     "full": {
         "label": "Full JINX Package",
         "modules": ("core", "brain", "c5isr", "net", "intel", "sim", "bus"),
-        "apps": ("/apps/ops", "/apps/c5isr", "/apps/net"),
+        "apps": ("/apps/ops", "/apps/c5isr", "/apps/net", "/apps/intel"),
     },
     "c5isr": {
         "label": "JINX-C5ISR Package",
@@ -71,12 +71,18 @@ PACKAGE_PROFILES = {
         "modules": ("core", "brain", "net", "sim", "bus"),
         "apps": ("/apps/net",),
     },
+    "intel": {
+        "label": "JINX-INTEL Package",
+        "modules": ("core", "brain", "intel", "sim", "bus"),
+        "apps": ("/apps/intel",),
+    },
 }
 
 PACKAGE_PERMISSION_PREFIXES = {
     "full": (),
-    "c5isr": ("net:",),
-    "net": ("operator_report:", "cop:", "mission:", "intel:", "isr:", "human_command:"),
+    "c5isr": ("net:", "intel:", "isr:", "ops:"),
+    "net": ("operator_report:", "cop:", "mission:", "intel:", "isr:", "human_command:", "ops:"),
+    "intel": ("operator_report:", "cop:", "mission:", "net:", "human_command:", "ops:"),
 }
 
 NET_REDACTIONS = {
@@ -250,19 +256,35 @@ class JINXRequestHandler(SimpleHTTPRequestHandler):
                 return
             if parsed.path == "/api/intelligence-summaries":
                 self._require_permission("isr:read")
-                self._send_json(
-                    {"intelligence_summaries": self.server.database.list_documents("intelligence_summaries")}
-                )
+                self._send_json(self.server.api_handlers.service.intelligence_summaries_document())
+                return
+            if parsed.path == "/api/intel/summaries":
+                self._require_permission("isr:read")
+                self._send_json(self.server.api_handlers.service.intelligence_summaries_document())
                 return
             if parsed.path == "/api/intelligence-impacts":
                 self._require_permission("isr:read")
-                self._send_json(
-                    {"intelligence_impacts": self.server.database.list_documents("intelligence_impacts")}
-                )
+                self._send_json(self.server.api_handlers.service.intelligence_impacts_document())
+                return
+            if parsed.path == "/api/intel/impacts":
+                self._require_permission("isr:read")
+                self._send_json(self.server.api_handlers.service.intelligence_impacts_document())
+                return
+            if parsed.path == "/api/intel/correlations":
+                self._require_permission("isr:read")
+                self._send_json(self.server.api_handlers.service.intelligence_correlations_document())
+                return
+            if parsed.path == "/api/intel/module-notices":
+                self._require_permission("isr:read")
+                self._send_json(self.server.api_handlers.service.intelligence_module_notices_document())
                 return
             if parsed.path == "/api/isr-feeds":
                 self._require_permission("isr:read")
-                self._send_json({"isr_feeds": self.server.database.list_documents("isr_feeds")})
+                self._send_json(self.server.api_handlers.service.isr_feeds_document())
+                return
+            if parsed.path == "/api/intel/isr-feeds":
+                self._require_permission("isr:read")
+                self._send_json(self.server.api_handlers.service.isr_feeds_document())
                 return
             if parsed.path == "/api/net/plans":
                 self._require_permission("net:read")
@@ -293,7 +315,7 @@ class JINXRequestHandler(SimpleHTTPRequestHandler):
                             {"name": "JINX-BRAIN", "status": "online", "role": "Doctrine/SOP knowledge"},
                             {"name": "JINX-C5ISR", "status": "online", "role": "COP and operator intake"},
                             {"name": "JINX-NET", "status": "stubbed", "role": "Synthetic MTDL validation"},
-                            {"name": "JINX-INTEL", "status": "stubbed", "role": "Synthetic/authorized fusion"},
+                            {"name": "JINX-INTEL", "status": "online", "role": "Synthetic/authorized fusion"},
                             {"name": "JINX-SIM", "status": "online", "role": "Synthetic scenario replay"},
                             {"name": "JINX-BUS", "status": "online", "role": "Policy-enforced routing"},
                         ]
@@ -355,7 +377,15 @@ class JINXRequestHandler(SimpleHTTPRequestHandler):
                 self._require_permission("intel:submit")
                 self._send_json(self.server.api_handlers.submit_intelligence_summary(payload), status=201)
                 return
+            if parsed.path == "/api/intel/summaries":
+                self._require_permission("intel:submit")
+                self._send_json(self.server.api_handlers.submit_intelligence_summary(payload), status=201)
+                return
             if parsed.path == "/api/isr-feeds":
+                self._require_permission("isr:write")
+                self._send_json(self.server.api_handlers.submit_isr_feed_snapshot(payload), status=201)
+                return
+            if parsed.path == "/api/intel/isr-feeds":
                 self._require_permission("isr:write")
                 self._send_json(self.server.api_handlers.submit_isr_feed_snapshot(payload), status=201)
                 return
@@ -436,6 +466,8 @@ class JINXRequestHandler(SimpleHTTPRequestHandler):
             "/c5isr": "/c5isr.html",
             "/apps/net": "/net.html",
             "/net": "/net.html",
+            "/apps/intel": "/intel.html",
+            "/intel": "/intel.html",
         }
         return mapping.get(path)
 
