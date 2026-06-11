@@ -6,8 +6,22 @@ from typing import Mapping
 from uuid import uuid4
 
 from jinx.common.types.confidence import ConfidenceScore
-from jinx.common.types.enums import DataMode, EventType
+from jinx.common.types.enums import AdvisoryLabel, DataMode, EventType, OperatorReportType
 from jinx.core.provenance.models import ProvenanceRecord
+
+PROHIBITED_OPERATOR_ACTION_TERMS = frozenset(
+    {
+        "autonomous order",
+        "authorize strike",
+        "control weapon",
+        "engage target",
+        "fire mission",
+        "kill",
+        "lethal action",
+        "retask collector",
+        "targeting decision",
+    }
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -124,3 +138,78 @@ class Recommendation:
             raise ValueError("recommendations must declare disallowed actions")
         if not self.provenance_chain:
             raise ValueError("recommendations require provenance")
+
+
+@dataclass(frozen=True, slots=True)
+class OperatorReport:
+    report_type: OperatorReportType
+    reporter_id: str
+    source_device_id: str
+    summary: str
+    confidence: ConfidenceScore
+    provenance: ProvenanceRecord
+    data_mode: DataMode
+    location: Location | None = None
+    metadata: Mapping[str, str] = field(default_factory=dict)
+    human_originated: bool = True
+    requires_human_review: bool = True
+    simulation_flag: bool = True
+    id: str = field(default_factory=lambda: f"op-report-{uuid4()}")
+    timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
+
+    def __post_init__(self) -> None:
+        if not self.reporter_id:
+            raise ValueError("operator report reporter_id is required")
+        if not self.source_device_id:
+            raise ValueError("operator report source_device_id is required")
+        if not self.summary:
+            raise ValueError("operator report summary is required")
+        if not self.human_originated:
+            raise ValueError("operator reports must be human-originated")
+        if not self.requires_human_review:
+            raise ValueError("operator reports require human review")
+        if self.data_mode in {DataMode.SYNTHETIC, DataMode.MOCK} and not self.simulation_flag:
+            raise ValueError("synthetic and mock operator reports must be marked as simulation")
+
+        lowered = self.summary.lower()
+        for term in PROHIBITED_OPERATOR_ACTION_TERMS:
+            if term in lowered:
+                raise ValueError(f"operator report contains prohibited action language: {term}")
+
+
+@dataclass(frozen=True, slots=True)
+class COPAdvisory:
+    label: AdvisoryLabel
+    recipient_id: str
+    summary: str
+    rationale: str
+    confidence: ConfidenceScore
+    provenance_chain: tuple[ProvenanceRecord, ...]
+    required_human_review: bool
+    allowed_actions: tuple[str, ...]
+    disallowed_actions: tuple[str, ...]
+    affected_entities: tuple[EntityRef, ...] = field(default_factory=tuple)
+    related_report_ids: tuple[str, ...] = field(default_factory=tuple)
+    id: str = field(default_factory=lambda: f"cop-adv-{uuid4()}")
+    timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
+
+    def __post_init__(self) -> None:
+        if not self.recipient_id:
+            raise ValueError("COP advisory recipient_id is required")
+        if not self.summary:
+            raise ValueError("COP advisory summary is required")
+        if not self.rationale:
+            raise ValueError("COP advisory rationale is required")
+        if not self.provenance_chain:
+            raise ValueError("COP advisory requires provenance")
+        if not self.required_human_review:
+            raise ValueError("COP advisories require human review")
+        if not self.allowed_actions:
+            raise ValueError("COP advisory must declare allowed actions")
+        if not self.disallowed_actions:
+            raise ValueError("COP advisory must declare disallowed actions")
+
+        combined = " ".join((self.summary, self.rationale, *self.allowed_actions)).lower()
+        for term in PROHIBITED_OPERATOR_ACTION_TERMS:
+            if term in combined:
+                raise ValueError(f"COP advisory contains prohibited action language: {term}")

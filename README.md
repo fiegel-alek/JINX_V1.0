@@ -40,6 +40,7 @@ This repository is being rebuilt as a simulation-first, advisory, human-in-the-l
 - Core conflict detection for synthetic communications status contradictions.
 - Core human-review recommendation generation from conflict packets.
 - BRAIN doctrine, TACSOP, and SOP knowledge-reference primitives.
+- Proposed JINX-Operator Mini edge-client schemas for operator reports and C5ISR advisories.
 - End-to-end tests for synthetic event reasoning through policy and bus routing.
 
 ## Repository Layout

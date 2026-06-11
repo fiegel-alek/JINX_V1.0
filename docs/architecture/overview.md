@@ -13,6 +13,7 @@ JINX does not replace existing systems and must not become an autonomous authori
 - JINX-INTEL: intelligence fusion, incorporation, contextualization, and correlation module.
 - JINX-SIM: synthetic scenarios, replay, injects, expected outcomes, and test comparison.
 - JINX-BUS / JINX-FABRIC: tactical-radio and external integration fabric, simulation-first until explicit access exists.
+- JINX-Operator Mini: proposed edge client for operator reports and C5ISR advisories.
 - Cognitive Boundary Layer: entitlement-aware containment for data, inference, learning, and outputs.
 - Adapter Framework: permissioned external connectors that cannot bypass Core.
 

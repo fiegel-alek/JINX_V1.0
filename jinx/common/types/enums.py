@@ -51,10 +51,23 @@ class AuditEventType(StrEnum):
 
 class EventType(StrEnum):
     COMMUNICATIONS_AVAILABLE = "communications_available"
+    COMMUNICATIONS_CHECK = "communications_check"
     COMMUNICATIONS_LOSS = "communications_loss"
     CONFLICTING_REPORT = "conflicting_report"
     MOVEMENT_DELAY = "movement_delay"
     WEATHER_IMPACT = "weather_impact"
     ROUTE_ISSUE = "route_issue"
     LOGISTICS_ISSUE = "logistics_issue"
+    UNKNOWN_REQUIRES_REVIEW = "unknown_requires_review"
+
+
+class OperatorReportType(StrEnum):
+    POSITION_UPDATE = "position_update"
+    STATUS_UPDATE = "status_update"
+    COMMUNICATIONS_CHECK = "communications_check"
+    MEDICAL = "medical"
+    LOGISTICS = "logistics"
+    OBSERVATION = "observation"
+    HAZARD = "hazard"
+    REQUEST_INFORMATION = "request_information"
     UNKNOWN_REQUIRES_REVIEW = "unknown_requires_review"

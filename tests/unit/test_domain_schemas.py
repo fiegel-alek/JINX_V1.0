@@ -1,7 +1,8 @@
 from unittest import TestCase
 
-from jinx.common.types import DataMode, EventType
+from jinx.common.types import AdvisoryLabel, DataMode, EventType, OperatorReportType
 from jinx.core.schemas import ConflictPacket, Event, Location, Recommendation
+from jinx.core.schemas import COPAdvisory, OperatorReport
 from tests.unit.helpers import confidence, provenance
 
 
@@ -49,4 +50,31 @@ class DomainSchemaTests(TestCase):
                 allowed_actions=("Run synthetic replay.",),
                 disallowed_actions=("Do not modify live systems.",),
                 provenance_chain=(provenance("jinx-brain"),),
+            )
+
+    def test_operator_report_requires_human_origin(self) -> None:
+        with self.assertRaises(ValueError):
+            OperatorReport(
+                report_type=OperatorReportType.OBSERVATION,
+                reporter_id="operator-alpha",
+                source_device_id="operator-mini-001",
+                summary="Synthetic observation.",
+                confidence=confidence(),
+                provenance=provenance("jinx-operator-mini"),
+                data_mode=DataMode.SYNTHETIC,
+                human_originated=False,
+            )
+
+    def test_cop_advisory_rejects_prohibited_action_language(self) -> None:
+        with self.assertRaises(ValueError):
+            COPAdvisory(
+                label=AdvisoryLabel.RECOMMENDATION,
+                recipient_id="operator-alpha",
+                summary="Engage target from advisory.",
+                rationale="Unsafe advisory language should be rejected.",
+                confidence=confidence(),
+                provenance_chain=(provenance("jinx-c5isr"),),
+                required_human_review=True,
+                allowed_actions=("Request human review.",),
+                disallowed_actions=("Do not treat as an order.",),
             )

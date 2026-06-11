@@ -39,8 +39,12 @@ def default_module_manifests() -> tuple[ModuleManifest, ...]:
             version="0.1.0",
             licensed=True,
             license_scope="fabric",
-            allowed_inputs=frozenset({"event.v1", "conflict_packet.v1", "recommendation.v1"}),
-            allowed_outputs=frozenset({"event.v1", "conflict_packet.v1", "recommendation.v1"}),
+            allowed_inputs=frozenset(
+                {"event.v1", "conflict_packet.v1", "recommendation.v1", "operator_report.v1", "cop_advisory.v1"}
+            ),
+            allowed_outputs=frozenset(
+                {"event.v1", "conflict_packet.v1", "recommendation.v1", "operator_report.v1", "cop_advisory.v1"}
+            ),
             required_permissions=frozenset({"policy:evaluate", "audit:write"}),
             capabilities=frozenset(
                 {"policy_route", "dead_letter", "audit_hook", "tactical_radio_integration_stub"}
@@ -67,8 +71,10 @@ def default_module_manifests() -> tuple[ModuleManifest, ...]:
             version="0.1.0",
             licensed=True,
             license_scope="c5isr",
-            allowed_inputs=frozenset({"event.v1", "conflict_packet.v1", "recommendation.v1"}),
-            allowed_outputs=frozenset({"event.v1", "conflict_packet.v1"}),
+            allowed_inputs=frozenset(
+                {"event.v1", "conflict_packet.v1", "recommendation.v1", "operator_report.v1"}
+            ),
+            allowed_outputs=frozenset({"event.v1", "conflict_packet.v1", "cop_advisory.v1"}),
             required_permissions=frozenset({"mock_adapter:read", "audit:write"}),
             capabilities=frozenset(
                 {
@@ -81,6 +87,26 @@ def default_module_manifests() -> tuple[ModuleManifest, ...]:
                 }
             ),
             dependencies=frozenset({"jinx-core", "jinx-brain", "jinx-bus"}),
+            safety_classification=SafetyClassification.ADVISORY_REASONING,
+            supports_simulation=True,
+        ),
+        ModuleManifest(
+            name="jinx-operator-mini",
+            version="0.1.0",
+            licensed=True,
+            license_scope="operator-mini",
+            allowed_inputs=frozenset({"cop_advisory.v1", "recommendation.v1"}),
+            allowed_outputs=frozenset({"operator_report.v1"}),
+            required_permissions=frozenset({"operator_report:write", "audit:write"}),
+            capabilities=frozenset(
+                {
+                    "operator_report_submit",
+                    "cop_advisory_receive",
+                    "simulation_edge_client",
+                    "disconnected_mock_mode",
+                }
+            ),
+            dependencies=frozenset({"jinx-c5isr"}),
             safety_classification=SafetyClassification.ADVISORY_REASONING,
             supports_simulation=True,
         ),
