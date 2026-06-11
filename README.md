@@ -53,6 +53,9 @@ This repository is being rebuilt as a simulation-first, advisory, human-in-the-l
 - Simulation replay frames.
 - Controlled adapter gates.
 - GitHub Actions unit-test workflow.
+- SQLite-backed web/API persistence.
+- HTTP server with optional TLS certificate support for HTTPS.
+- First static C5ISR COP interface.
 - End-to-end tests for synthetic event reasoning through policy and bus routing.
 
 ## Repository Layout
@@ -74,6 +77,20 @@ tests/
 
 ```bash
 python3 -m unittest discover -s tests
+```
+
+## Running The Web/COP Prototype
+
+```bash
+python3 -m jinx.web --host 127.0.0.1 --port 8080 --database data/jinx.sqlite3
+```
+
+Open `http://127.0.0.1:8080`.
+
+For HTTPS in a controlled environment, provide a certificate and key:
+
+```bash
+python3 -m jinx.web --certfile path/to/cert.pem --keyfile path/to/key.pem
 ```
 
 ## Development Posture

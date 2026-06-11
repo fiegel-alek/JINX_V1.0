@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>JINX COP</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">JINX-C5ISR</p>
+          <h1>Common Operational Picture</h1>
+        </div>
+        <div class="status">
+          <span id="api-status" class="status-dot"></span>
+          <span id="api-status-text">Checking API</span>
+        </div>
+      </header>
+
+      <section class="workspace">
+        <section class="map-panel" aria-label="COP map">
+          <div class="map-grid" id="cop-map">
+            <div class="map-crosshair"></div>
+          </div>
+        </section>
+
+        <aside class="side-panel">
+          <section class="panel">
+            <h2>Tracks</h2>
+            <div id="track-list" class="list empty">No tracks loaded</div>
+          </section>
+
+          <section class="panel">
+            <h2>Operator Report</h2>
+            <form id="report-form" class="form">
+              <label>
+                Reporter
+                <input name="reporter_id" value="operator-alpha" required />
+              </label>
+              <label>
+                Device
+                <input name="device_id" value="operator-mini-001" required />
+              </label>
+              <label>
+                Type
+                <select name="report_type">
+                  <option value="observation">Observation</option>
+                  <option value="communications_check">Communications check</option>
+                  <option value="position_update">Position update</option>
+                  <option value="status_update">Status update</option>
+                  <option value="medical">Medical</option>
+                  <option value="logistics">Logistics</option>
+                  <option value="hazard">Hazard</option>
+                </select>
+              </label>
+              <label>
+                Location
+                <input name="location" value="synthetic-grid-alpha" required />
+              </label>
+              <label>
+                Summary
+                <textarea name="summary" required>Synthetic operator observation from COP interface.</textarea>
+              </label>
+              <button type="submit">Submit Report</button>
+            </form>
+          </section>
+        </aside>
+      </section>
+
+      <section class="lower">
+        <section class="panel">
+          <h2>Latest Activity</h2>
+          <div id="activity-list" class="list empty">No activity yet</div>
+        </section>
+        <section class="panel">
+          <h2>Guardrails</h2>
+          <ul class="guardrails">
+            <li>Core does not originate command authority.</li>
+            <li>Operator reports remain human-originated field observations.</li>
+            <li>C5ISR returns advisories, not autonomous orders.</li>
+          </ul>
+        </section>
+      </section>
+    </main>
+    <script src="/app.js"></script>
+  </body>
+</html>

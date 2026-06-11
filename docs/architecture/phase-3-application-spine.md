@@ -13,6 +13,9 @@ Phase 3 turns the library skeleton into an application-oriented architecture whi
 - Simulation replay frames.
 - Controlled adapter gates.
 - GitHub Actions unit-test workflow.
+- SQLite-backed API persistence.
+- HTTP server with optional TLS wrapping for HTTPS deployment.
+- Static COP frontend served from the same web layer.
 
 ## Command Authority Rule
 
@@ -22,6 +25,7 @@ Core may carry, route, validate, and audit human-originated command input. Core 
 
 - Replace JSON store with a real database layer.
 - Add authenticated HTTP APIs.
+- Add production TLS/certificate management.
 - Add durable queues and subscriptions.
 - Add UI clients for Core, C5ISR, Operator Mini, NET, INTEL, and SIM.
 - Add structured logging, migrations, and deployment packaging.
