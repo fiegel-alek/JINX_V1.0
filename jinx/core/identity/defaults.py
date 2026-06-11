@@ -1,0 +1,41 @@
+"""Default roles for early JINX development."""
+
+from jinx.core.identity import AccessControl, Role
+
+
+def build_default_access_control() -> AccessControl:
+    access = AccessControl()
+    for role in (
+        Role(
+            name="system_administrator",
+            permissions=frozenset({"admin:all", "audit:read", "config:write"}),
+            description="Administers the JINX platform.",
+        ),
+        Role(
+            name="commander",
+            permissions=frozenset({"human_command:submit", "cop:read", "advisory:review"}),
+            description="Provides human command input and reviews advisories.",
+        ),
+        Role(
+            name="operator",
+            permissions=frozenset({"operator_report:submit", "cop_advisory:read"}),
+            description="Submits field reports and reads C5ISR advisories.",
+        ),
+        Role(
+            name="network_manager",
+            permissions=frozenset({"network:review", "advisory:review"}),
+            description="Reviews network-domain issues.",
+        ),
+        Role(
+            name="intel_analyst",
+            permissions=frozenset({"intel:review", "advisory:review"}),
+            description="Reviews intelligence-derived summaries and impacts.",
+        ),
+        Role(
+            name="auditor",
+            permissions=frozenset({"audit:read", "provenance:read"}),
+            description="Reviews audit and provenance trails.",
+        ),
+    ):
+        access.register_role(role)
+    return access

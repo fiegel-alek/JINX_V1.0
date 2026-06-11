@@ -54,3 +54,7 @@ The current implementation adds the first vertical reasoning path:
 - NET can validate synthetic MTDL network status for timing and LOS review issues.
 - INTEL can fuse synthetic or authorized summaries into human-review impact notices.
 - Core has in-memory audit and provenance stores for early persistence tests.
+
+## Phase 3 Application Spine
+
+The current repository also includes identity/RBAC primitives, runtime configuration, JSON persistence, application services, dependency-free API handlers, simulation replay, adapter gates, and CI. These pieces are intentionally light but establish the main app shape before a database, HTTP server, and frontend are introduced.

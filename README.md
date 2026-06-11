@@ -47,6 +47,12 @@ This repository is being rebuilt as a simulation-first, advisory, human-in-the-l
 - Synthetic JINX-NET MTDL validation stubs.
 - Synthetic/authorized JINX-INTEL summary fusion and impact mapping.
 - In-memory audit and provenance stores.
+- Phase 3 application service layer and dependency-free API handlers.
+- Identity/RBAC primitives and default roles.
+- JSON document persistence for early app wiring.
+- Simulation replay frames.
+- Controlled adapter gates.
+- GitHub Actions unit-test workflow.
 - End-to-end tests for synthetic event reasoning through policy and bus routing.
 
 ## Repository Layout
