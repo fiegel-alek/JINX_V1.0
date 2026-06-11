@@ -20,7 +20,7 @@ class SyntheticScenarioFactory:
                     payload_schema="event.v1",
                     payload={
                         "synthetic": True,
-                        "event_type": EventType.COMMUNICATIONS_LOSS.value,
+                        "event_type": EventType.COMMUNICATIONS_AVAILABLE.value,
                         "summary": "Expected communications window is available.",
                         "source": "synthetic-plan-feed",
                     },
@@ -39,6 +39,38 @@ class SyntheticScenarioFactory:
                     expected_effects=("conflict packet candidate", "human review recommended"),
                 ),
             ),
+        )
+
+    def communications_available_event(self) -> Event:
+        confidence = ConfidenceScore(
+            value=0.78,
+            scale="0.0-1.0",
+            rationale="Synthetic planning baseline declares communications availability.",
+            source_quality=0.8,
+            recency_factor=0.8,
+            corroboration_factor=0.5,
+            contradiction_factor=0.2,
+            completeness_factor=0.7,
+        )
+        provenance = ProvenanceRecord(
+            source="synthetic-plan-feed",
+            time_received=datetime.now(UTC),
+            processed_by_module="jinx-sim",
+            transformations=("generated", "validated"),
+            confidence=confidence,
+        )
+        return Event(
+            event_type=EventType.COMMUNICATIONS_AVAILABLE,
+            source="synthetic-plan-feed",
+            description="Synthetic baseline indicates communications should be available.",
+            confidence=confidence,
+            provenance=provenance,
+            data_mode=DataMode.SYNTHETIC,
+            location=Location(label="synthetic-area-alpha"),
+            metadata={
+                "scenario": "communications_conflict_shadow_run",
+                "communications_status": "available",
+            },
         )
 
     def communications_loss_event(self) -> Event:
@@ -67,5 +99,8 @@ class SyntheticScenarioFactory:
             provenance=provenance,
             data_mode=DataMode.SYNTHETIC,
             location=Location(label="synthetic-area-alpha"),
-            metadata={"scenario": "communications_conflict_shadow_run"},
+            metadata={
+                "scenario": "communications_conflict_shadow_run",
+                "communications_status": "unavailable",
+            },
         )

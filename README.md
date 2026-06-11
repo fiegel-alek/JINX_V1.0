@@ -32,6 +32,15 @@ This repository is being rebuilt as a simulation-first, advisory, human-in-the-l
 - Synthetic scenario and message primitives.
 - Tests that encode safety behavior before higher-level features are added.
 
+## Current Phase 1 Capabilities
+
+- Policy-enforced message routing with audit records and dead-letter handling.
+- Default manifests for Core, BUS, BRAIN, C5ISR, NET, INTEL, and SIM.
+- Synthetic communications-conflict scenario generation.
+- BRAIN conflict detection for synthetic communications status contradictions.
+- Human-review recommendation generation from conflict packets.
+- End-to-end tests for synthetic event reasoning through policy and bus routing.
+
 ## Repository Layout
 
 ```text

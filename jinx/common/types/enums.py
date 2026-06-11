@@ -50,6 +50,7 @@ class AuditEventType(StrEnum):
 
 
 class EventType(StrEnum):
+    COMMUNICATIONS_AVAILABLE = "communications_available"
     COMMUNICATIONS_LOSS = "communications_loss"
     CONFLICTING_REPORT = "conflicting_report"
     MOVEMENT_DELAY = "movement_delay"

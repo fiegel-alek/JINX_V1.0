@@ -32,6 +32,7 @@ class SimulationTests(TestCase):
 
         self.assertEqual(scenario.synthetic_label, "synthetic")
         self.assertEqual(len(scenario.events), 2)
+        self.assertEqual(scenario.events[0].payload["event_type"], EventType.COMMUNICATIONS_AVAILABLE)
         self.assertEqual(scenario.events[1].expected_effects[-1], "human review recommended")
 
     def test_factory_builds_domain_event_from_synthetic_data(self) -> None:

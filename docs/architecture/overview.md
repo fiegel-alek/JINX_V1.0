@@ -33,3 +33,13 @@ Phase 0 is intentionally simulation-first. It creates safe contracts before real
 - module entitlements
 - boundary redaction
 - focused tests
+
+## Phase 1 Spine
+
+The current implementation adds the first vertical reasoning path:
+
+1. JINX-SIM creates synthetic communications status events.
+2. JINX-BRAIN detects a bounded conflict without deciding truth.
+3. JINX-BRAIN emits a confidence-rated conflict packet and human-review recommendation.
+4. JINX-BUS routes both through JINX-Core policy checks.
+5. The audit layer records policy and routing decisions.
