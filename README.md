@@ -37,8 +37,9 @@ This repository is being rebuilt as a simulation-first, advisory, human-in-the-l
 - Policy-enforced message routing with audit records and dead-letter handling.
 - Default manifests for Core, BUS, BRAIN, C5ISR, NET, INTEL, and SIM.
 - Synthetic communications-conflict scenario generation.
-- BRAIN conflict detection for synthetic communications status contradictions.
-- Human-review recommendation generation from conflict packets.
+- Core conflict detection for synthetic communications status contradictions.
+- Core human-review recommendation generation from conflict packets.
+- BRAIN doctrine, TACSOP, and SOP knowledge-reference primitives.
 - End-to-end tests for synthetic event reasoning through policy and bus routing.
 
 ## Repository Layout

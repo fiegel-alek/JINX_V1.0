@@ -1,6 +1,5 @@
-"""JINX-BRAIN bounded reasoning subsystem."""
+"""JINX-BRAIN doctrine, TACSOP, and SOP knowledge subsystem."""
 
-from jinx.brain.conflict_resolution import ConflictDetector
-from jinx.brain.reasoning import BrainReasoningWorkflow, ReasoningResult
+from jinx.brain.knowledge import DoctrineRecord, DoctrineRepository, DoctrineScope
 
-__all__ = ["BrainReasoningWorkflow", "ConflictDetector", "ReasoningResult"]
+__all__ = ["DoctrineRecord", "DoctrineRepository", "DoctrineScope"]

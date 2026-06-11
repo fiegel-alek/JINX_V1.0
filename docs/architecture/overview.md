@@ -6,19 +6,19 @@ JINX does not replace existing systems and must not become an autonomous authori
 
 ## Major Components
 
-- JINX-Core: platform governance, registry, policy, identity, provenance, audit, schemas, and safe orchestration.
-- JINX-BRAIN: bounded reasoning, context building, conflict explanation, confidence, and option generation.
-- JINX-NET: network reasoning and simulation using synthetic or authorized inputs.
-- JINX-C5ISR: mission, task, unit, event, and COP advisory interfaces.
-- JINX-INTEL: contextualization of already collected, summarized, synthetic, open, or authorized intelligence-derived data.
+- JINX-Core: the main AI processing, analysis, orchestration, policy, provenance, audit, and task-execution center.
+- JINX-BRAIN: doctrine, TACSOP, SOP, and mission-knowledge reference subsystem that feeds Core.
+- JINX-NET: Multi-Tactical Data Link network management, validation, and issue-correction module.
+- JINX-C5ISR: COP management, potential threat detection, ISR fusion, and warfighter/operator impact awareness.
+- JINX-INTEL: intelligence fusion, incorporation, contextualization, and correlation module.
 - JINX-SIM: synthetic scenarios, replay, injects, expected outcomes, and test comparison.
-- JINX-BUS / JINX-FABRIC: policy-enforced message movement.
+- JINX-BUS / JINX-FABRIC: tactical-radio and external integration fabric, simulation-first until explicit access exists.
 - Cognitive Boundary Layer: entitlement-aware containment for data, inference, learning, and outputs.
 - Adapter Framework: permissioned external connectors that cannot bypass Core.
 
 ## Runtime Principle
 
-Modules do not freely call each other. Messages flow through JINX-BUS, policy decisions are made by JINX-Core, and context/output filtering is enforced by the Cognitive Boundary Layer.
+JINX-Core is the main system. JINX-BRAIN feeds Core with approved doctrine, TACSOP, SOP, and mission knowledge. NET, INTEL, C5ISR, SIM, and BUS/FABRIC can be separated as licensed modules or bundled as a larger package. Cross-module outputs still pass through Core policy, provenance, audit, and boundary checks.
 
 ## Initial Build Principle
 
@@ -39,7 +39,7 @@ Phase 0 is intentionally simulation-first. It creates safe contracts before real
 The current implementation adds the first vertical reasoning path:
 
 1. JINX-SIM creates synthetic communications status events.
-2. JINX-BRAIN detects a bounded conflict without deciding truth.
-3. JINX-BRAIN emits a confidence-rated conflict packet and human-review recommendation.
+2. JINX-Core detects a bounded conflict without deciding truth.
+3. JINX-Core emits a confidence-rated conflict packet and human-review recommendation.
 4. JINX-BUS routes both through JINX-Core policy checks.
 5. The audit layer records policy and routing decisions.

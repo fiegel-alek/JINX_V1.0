@@ -1,12 +1,12 @@
-"""Human-review recommendation generation."""
+"""Core advisory recommendation generation."""
 
-from jinx.brain.explanation import ExplanationEngine
+from jinx.core.reasoning.explanation import CoreExplanationEngine
 from jinx.core.schemas import ConflictPacket, Recommendation
 
 
-class RecommendationEngine:
-    def __init__(self, explanation_engine: ExplanationEngine | None = None) -> None:
-        self._explanation_engine = explanation_engine or ExplanationEngine()
+class CoreRecommendationEngine:
+    def __init__(self, explanation_engine: CoreExplanationEngine | None = None) -> None:
+        self._explanation_engine = explanation_engine or CoreExplanationEngine()
 
     def from_conflict(self, conflict: ConflictPacket) -> Recommendation:
         return Recommendation(
@@ -17,7 +17,7 @@ class RecommendationEngine:
             ),
             rationale=self._explanation_engine.recommendation_rationale(conflict),
             assumptions=(
-                "Inputs are synthetic and intended for shadow-mode validation.",
+                "Inputs are synthetic or explicitly approved for this shadow-mode workflow.",
                 "The conflict packet does not determine which source is correct.",
             ),
             risks=(

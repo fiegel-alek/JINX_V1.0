@@ -1,22 +1,24 @@
 # JINX-BRAIN
 
-JINX-BRAIN is the bounded reasoning subsystem. It receives scoped context through Core-approved paths and emits explainable advisory outputs only.
+JINX-BRAIN is the doctrine, TACSOP, SOP, and mission-knowledge subsystem.
+
+Core is where the active AI processing, analysis, and task execution lives. BRAIN feeds Core with bounded mission knowledge references so Core can reason with the right doctrinal and procedural context.
 
 ## Phase 1 Behavior
 
-- Detects a synthetic communications status conflict when one synthetic event says communications are available and another says they are unavailable.
-- Produces a `ConflictPacket` with confidence, explanation, likely impacts, review role, and provenance.
-- Produces a human-review `Recommendation` from the conflict packet.
-- Routes conflict and recommendation messages through JINX-BUS so policy and audit behavior are exercised.
+- Stores synthetic doctrine, TACSOP, SOP, and mission-note records.
+- Supports query and tag search over bounded knowledge references.
+- Requires restrictions and applicability on each doctrine record.
+- Treats all current records as synthetic fixtures unless explicitly authorized.
 
 ## Boundary
 
-The current detector does not decide which source is true. It labels the conflict, preserves uncertainty, recommends review, and supports simulation replay.
+BRAIN does not issue orders, invent doctrine, or act as the final authority. It provides references and context to Core. Core remains responsible for advisory analysis, confidence, explanation, provenance, audit, and policy enforcement.
 
 ## Future Work
 
-- Bounded context builder.
-- Multi-conflict ranking.
-- Clarification question generation.
-- License-aware explanation redaction.
-- Conservative feedback and learning gates.
+- Doctrine import pipeline.
+- TACSOP/SOP versioning.
+- Mission-context tagging.
+- Human-reviewed knowledge promotion.
+- License-aware doctrine compartments.

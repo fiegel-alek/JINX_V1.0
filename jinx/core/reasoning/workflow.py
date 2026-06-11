@@ -1,33 +1,35 @@
-"""BRAIN reasoning workflows."""
+"""Core advisory reasoning workflows."""
 
 from dataclasses import dataclass
 
-from jinx.brain.conflict_resolution import ConflictDetector
-from jinx.brain.option_generation import RecommendationEngine
 from jinx.bus import FabricMessage, MessageRouter, RouteResult
 from jinx.common.types import DataMode
+from jinx.core.reasoning.detector import CoreConflictDetector
+from jinx.core.reasoning.recommender import CoreRecommendationEngine
 from jinx.core.schemas import ConflictPacket, Event, Recommendation
 
 
 @dataclass(frozen=True, slots=True)
-class ReasoningResult:
+class CoreReasoningResult:
     conflicts: tuple[ConflictPacket, ...]
     recommendations: tuple[Recommendation, ...]
     route_results: tuple[RouteResult, ...]
 
 
-class BrainReasoningWorkflow:
+class CoreReasoningWorkflow:
     def __init__(
         self,
         router: MessageRouter,
-        conflict_detector: ConflictDetector | None = None,
-        recommendation_engine: RecommendationEngine | None = None,
+        conflict_detector: CoreConflictDetector | None = None,
+        recommendation_engine: CoreRecommendationEngine | None = None,
     ) -> None:
         self._router = router
-        self._conflict_detector = conflict_detector or ConflictDetector()
-        self._recommendation_engine = recommendation_engine or RecommendationEngine()
+        self._conflict_detector = conflict_detector or CoreConflictDetector()
+        self._recommendation_engine = recommendation_engine or CoreRecommendationEngine()
 
-    def review_events(self, events: tuple[Event, ...], destination: str = "jinx-core") -> ReasoningResult:
+    def review_events(
+        self, events: tuple[Event, ...], destination: str = "jinx-c5isr"
+    ) -> CoreReasoningResult:
         conflicts = self._conflict_detector.detect(events)
         recommendations = tuple(self._recommendation_engine.from_conflict(item) for item in conflicts)
         route_results: list[RouteResult] = []
@@ -39,17 +41,17 @@ class BrainReasoningWorkflow:
                 self._router.route(self._recommendation_message(recommendation, destination))
             )
 
-        return ReasoningResult(conflicts, recommendations, tuple(route_results))
+        return CoreReasoningResult(conflicts, recommendations, tuple(route_results))
 
     @staticmethod
     def _conflict_message(conflict: ConflictPacket, destination: str) -> FabricMessage:
         return FabricMessage(
-            source_module="jinx-brain",
+            source_module="jinx-core",
             destination=destination,
             payload_schema="conflict_packet.v1",
             schema_version="1.0",
             sensitivity_label="synthetic",
-            license_scope="brain",
+            license_scope="core",
             provenance_ref=conflict.id,
             payload={
                 "id": conflict.id,
@@ -64,12 +66,12 @@ class BrainReasoningWorkflow:
     @staticmethod
     def _recommendation_message(recommendation: Recommendation, destination: str) -> FabricMessage:
         return FabricMessage(
-            source_module="jinx-brain",
+            source_module="jinx-core",
             destination=destination,
             payload_schema="recommendation.v1",
             schema_version="1.0",
             sensitivity_label="synthetic",
-            license_scope="brain",
+            license_scope="core",
             provenance_ref=recommendation.id,
             payload={
                 "id": recommendation.id,

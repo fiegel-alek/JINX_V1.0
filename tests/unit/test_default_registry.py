@@ -25,3 +25,11 @@ class DefaultRegistryTests(TestCase):
 
         self.assertEqual(len(registry.licensed_modules()), 7)
         self.assertEqual(registry.get("jinx-sim").license_scope, "simulation")
+
+    def test_default_registry_reflects_core_and_brain_roles(self) -> None:
+        registry = build_default_registry()
+
+        self.assertIn("ai_reasoning", registry.get("jinx-core").capabilities)
+        self.assertIn("doctrine_reference", registry.get("jinx-brain").capabilities)
+        self.assertIn("jinx-brain", registry.get("jinx-core").dependencies)
+        self.assertIn("tactical_radio_integration_stub", registry.get("jinx-bus").capabilities)

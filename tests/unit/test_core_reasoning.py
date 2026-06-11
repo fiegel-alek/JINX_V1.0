@@ -1,38 +1,39 @@
 from unittest import TestCase
 
-from jinx.brain import BrainReasoningWorkflow, ConflictDetector
 from jinx.bus import MessageRouter
 from jinx.common.types import AuditEventType, EventType
 from jinx.core.audit import AuditLog
 from jinx.core.policy import PolicyEngine
+from jinx.core.reasoning import CoreConflictDetector, CoreReasoningWorkflow
 from jinx.core.registry import build_default_registry
 from jinx.modules.sim import SyntheticScenarioFactory
 
 
-class BrainReasoningTests(TestCase):
-    def test_conflict_detector_finds_synthetic_communications_status_conflict(self) -> None:
+class CoreReasoningTests(TestCase):
+    def test_core_conflict_detector_finds_synthetic_communications_status_conflict(self) -> None:
         factory = SyntheticScenarioFactory()
         events = (factory.communications_available_event(), factory.communications_loss_event())
 
-        conflicts = ConflictDetector().detect(events)
+        conflicts = CoreConflictDetector().detect(events)
 
         self.assertEqual(len(conflicts), 1)
         self.assertEqual(conflicts[0].conflict_type, "communications_status_conflict")
         self.assertTrue(conflicts[0].simulation_replay_available)
+        self.assertEqual(conflicts[0].detected_by_module, "jinx-core")
         self.assertIn("cannot decide which report is true", conflicts[0].explanation)
 
-    def test_conflict_detector_returns_empty_without_conflict(self) -> None:
+    def test_core_conflict_detector_returns_empty_without_conflict(self) -> None:
         factory = SyntheticScenarioFactory()
         events = (factory.communications_available_event(),)
 
-        self.assertEqual(ConflictDetector().detect(events), ())
+        self.assertEqual(CoreConflictDetector().detect(events), ())
 
-    def test_brain_workflow_routes_conflict_and_recommendation(self) -> None:
+    def test_core_workflow_routes_conflict_and_recommendation(self) -> None:
         factory = SyntheticScenarioFactory()
         registry = build_default_registry()
         audit_log = AuditLog()
         router = MessageRouter(PolicyEngine(registry), audit_log)
-        workflow = BrainReasoningWorkflow(router)
+        workflow = CoreReasoningWorkflow(router)
 
         result = workflow.review_events(
             (factory.communications_available_event(), factory.communications_loss_event())

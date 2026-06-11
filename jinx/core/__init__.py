@@ -1,1 +1,1 @@
-"""Core governance, policy, provenance, audit, and schema services."""
+"""Core governance, AI reasoning, policy, provenance, audit, and schema services."""

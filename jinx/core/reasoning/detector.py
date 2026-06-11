@@ -1,19 +1,19 @@
-"""Conservative conflict detection for bounded synthetic contexts."""
+"""Core advisory conflict detection."""
 
-from jinx.brain.confidence import ConfidenceEngine
-from jinx.brain.explanation import ExplanationEngine
 from jinx.common.types import EventType
+from jinx.core.reasoning.confidence import CoreConfidenceEngine
+from jinx.core.reasoning.explanation import CoreExplanationEngine
 from jinx.core.schemas import ConflictPacket, Event
 
 
-class ConflictDetector:
+class CoreConflictDetector:
     def __init__(
         self,
-        confidence_engine: ConfidenceEngine | None = None,
-        explanation_engine: ExplanationEngine | None = None,
+        confidence_engine: CoreConfidenceEngine | None = None,
+        explanation_engine: CoreExplanationEngine | None = None,
     ) -> None:
-        self._confidence_engine = confidence_engine or ConfidenceEngine()
-        self._explanation_engine = explanation_engine or ExplanationEngine()
+        self._confidence_engine = confidence_engine or CoreConfidenceEngine()
+        self._explanation_engine = explanation_engine or CoreExplanationEngine()
 
     def detect(self, events: tuple[Event, ...]) -> tuple[ConflictPacket, ...]:
         communications_conflict = self._detect_communications_status_conflict(events)
@@ -26,7 +26,6 @@ class ConflictDetector:
     ) -> ConflictPacket | None:
         available = self._first_event_with_status(events, "available")
         unavailable = self._first_event_with_status(events, "unavailable")
-
         if available is None or unavailable is None:
             return None
 
@@ -36,11 +35,11 @@ class ConflictDetector:
         )
         return ConflictPacket(
             conflict_type="communications_status_conflict",
-            detected_by_module="jinx-brain",
+            detected_by_module="jinx-core",
             conflicting_items=(available.id, unavailable.id),
             likely_impacts=(
                 "COP communications status confidence reduced",
-                "Network-domain review may be useful if licensed",
+                "JINX-NET review may be useful if the module is licensed",
                 "Simulation replay recommended before further planning assumptions are used",
             ),
             confidence=confidence,
