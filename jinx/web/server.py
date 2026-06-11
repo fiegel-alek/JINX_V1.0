@@ -14,12 +14,13 @@ from jinx.core.persistence import SQLiteJINXDatabase
 from jinx.modules.sim import default_c5isr_scenario_packs
 
 ROLE_PERMISSIONS = {
-    "operator": frozenset({"operator_report:submit", "cop:read"}),
+    "operator": frozenset({"brain:chat", "operator_report:submit", "cop:read"}),
     "commander": frozenset({"human_command:submit", "cop:read", "operator_report:review", "isr:read"}),
     "c5isr_manager": frozenset(
         {
             "audit:read",
             "brain:query",
+            "brain:chat",
             "operator_report:submit",
             "operator_report:review",
             "cop:read",
@@ -31,8 +32,8 @@ ROLE_PERMISSIONS = {
             "sim:inject",
         }
     ),
-    "intel_analyst": frozenset({"brain:query", "cop:read", "intel:submit", "isr:read", "isr:write"}),
-    "auditor": frozenset({"audit:read", "brain:query", "cop:read", "isr:read"}),
+    "intel_analyst": frozenset({"brain:chat", "brain:query", "cop:read", "intel:submit", "isr:read", "isr:write"}),
+    "auditor": frozenset({"audit:read", "brain:chat", "brain:query", "cop:read", "isr:read"}),
     "system_administrator": frozenset({"admin:all"}),
 }
 
@@ -134,6 +135,14 @@ class JINXRequestHandler(SimpleHTTPRequestHandler):
                 self._require_permission("brain:query")
                 self._send_json(self.server.api_handlers.query_brain({"tags": "review"}))
                 return
+            if parsed.path == "/api/brain/chat-sessions":
+                self._require_permission("brain:chat")
+                self._send_json(self.server.api_handlers.service.brain_chat_sessions_document())
+                return
+            if parsed.path == "/api/brain/chat-messages":
+                self._require_permission("brain:chat")
+                self._send_json(self.server.api_handlers.service.brain_chat_messages_document())
+                return
             if parsed.path == "/api/intelligence-summaries":
                 self._require_permission("isr:read")
                 self._send_json(
@@ -228,6 +237,10 @@ class JINXRequestHandler(SimpleHTTPRequestHandler):
             if parsed.path == "/api/brain/query":
                 self._require_permission("brain:query")
                 self._send_json(self.server.api_handlers.query_brain(payload), status=200)
+                return
+            if parsed.path == "/api/brain/chat":
+                self._require_permission("brain:chat")
+                self._send_json(self.server.api_handlers.ask_brain_chat(payload), status=201)
                 return
             if parsed.path == "/api/sim/demo":
                 self._require_permission("sim:inject")

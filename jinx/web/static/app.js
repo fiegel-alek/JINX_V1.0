@@ -18,6 +18,7 @@ const els = {
   recommendationList: document.querySelector("#recommendation-list"),
   analysisRunList: document.querySelector("#analysis-run-list"),
   explanationList: document.querySelector("#explanation-list"),
+  brainChatList: document.querySelector("#brain-chat-list"),
   brainReferenceList: document.querySelector("#brain-reference-list"),
   auditList: document.querySelector("#audit-list"),
   provenanceList: document.querySelector("#provenance-list"),
@@ -30,6 +31,7 @@ const els = {
   intelForm: document.querySelector("#intel-form"),
   isrFeedForm: document.querySelector("#isr-feed-form"),
   brainQueryForm: document.querySelector("#brain-query-form"),
+  brainChatForm: document.querySelector("#brain-chat-form"),
   refreshButton: document.querySelector("#refresh-button"),
   demoButton: document.querySelector("#demo-button"),
   missionButton: document.querySelector("#mission-button"),
@@ -321,6 +323,19 @@ function renderExplanations(explanations) {
   `);
 }
 
+function renderBrainChat(messages) {
+  document.querySelector("#brain-chat-count").textContent = messages.length;
+  renderList(els.brainChatList, messages.slice(-8).reverse(), "No Brain chat yet", (message) => `
+    <article class="item brain-chat">
+      <strong>${escapeHTML(message.answer.confidence_band)} · Core reachback ${message.answer.core_reachback_used ? "used" : "not used"}</strong>
+      <span>Q: ${escapeHTML(message.question.text)}</span>
+      <span>${escapeHTML(message.answer.answer_text)}</span>
+      <span>refs: ${escapeHTML((message.answer.references || []).join(", ") || "none")}</span>
+      <span>uncertainty: ${escapeHTML(message.answer.uncertainty)}</span>
+    </article>
+  `);
+}
+
 function renderBrainReferences(matches) {
   document.querySelector("#brain-reference-count").textContent = matches.length;
   renderList(els.brainReferenceList, matches, "No Brain references", (record) => `
@@ -425,6 +440,7 @@ async function refreshDashboard() {
       recommendations,
       analysisRuns,
       explanations,
+      brainChat,
       brainReferences,
       audit,
       provenance,
@@ -447,6 +463,7 @@ async function refreshDashboard() {
       getJSON("/api/recommendations"),
       getJSON("/api/core/analysis-runs"),
       getJSON("/api/core/explanations"),
+      getJSON("/api/brain/chat-messages"),
       getJSON("/api/brain/references"),
       getJSON("/api/core/audit"),
       getJSON("/api/core/provenance"),
@@ -469,6 +486,7 @@ async function refreshDashboard() {
     renderRecommendations(recommendations.recommendations || []);
     renderAnalysisRuns(analysisRuns.analysis_runs || []);
     renderExplanations(explanations.explanations || []);
+    renderBrainChat(brainChat.messages || []);
     renderBrainReferences(brainReferences.matches || []);
     renderAudit(audit.audit_records || []);
     renderProvenance(provenance.provenance || []);
@@ -537,6 +555,20 @@ els.brainQueryForm.addEventListener("submit", async (event) => {
     const response = await postJSON("/api/brain/query", data);
     renderBrainReferences(response.matches || []);
     addActivity(`Brain returned ${(response.matches || []).length} references.`);
+  } catch (error) {
+    addActivity(error.message);
+  }
+});
+
+els.brainChatForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const data = Object.fromEntries(new FormData(els.brainChatForm).entries());
+  data.role = activeRole();
+  data.use_core_reachback = els.brainChatForm.querySelector('[name="use_core_reachback"]').checked ? "true" : "false";
+  try {
+    const response = await postJSON("/api/brain/chat", data);
+    addActivity(`BRAIN answered ${response.answer.id} with ${response.answer.confidence_band} confidence.`);
+    await refreshDashboard();
   } catch (error) {
     addActivity(error.message);
   }

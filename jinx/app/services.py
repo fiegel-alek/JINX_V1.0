@@ -3,6 +3,7 @@
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
+from jinx.brain.chat import BrainChatEngine, BrainChatQuestion
 from jinx.brain.knowledge.defaults import build_synthetic_doctrine_repository
 from jinx.brain.knowledge.repository import DoctrineRepository
 from jinx.bus import FabricMessage, MessageRouter, RouteResult
@@ -53,6 +54,7 @@ class JINXApplicationService:
         self.cop_manager = COPManager(name="jinx-phase3-cop")
         self.core_reasoning = CoreReasoningWorkflow(self.router)
         self.brain_repository: DoctrineRepository = build_synthetic_doctrine_repository()
+        self.brain_chat = BrainChatEngine(self.brain_repository)
         self.intel_fusion = IntelligenceFusionEngine()
         self.mission_impact_analyzer = MissionImpactAnalyzer()
         self.mission_context: MissionContext | None = None
@@ -365,6 +367,57 @@ class JINXApplicationService:
             ],
         }
 
+    def ask_brain_chat(
+        self,
+        text: str,
+        user_id: str,
+        role: str,
+        session_id: str | None = None,
+        use_core_reachback: bool = True,
+    ) -> dict[str, object]:
+        question = BrainChatQuestion(text=text, user_id=user_id, role=role, session_id=session_id)
+        context = self._bounded_core_reachback() if use_core_reachback else {}
+        exchange = self.brain_chat.answer(question, context)
+        document = {
+            "session_id": exchange.answer.session_id,
+            "question": {
+                "id": question.id,
+                "text": question.text,
+                "user_id": question.user_id,
+                "role": question.role,
+                "timestamp": question.timestamp.isoformat(),
+            },
+            "answer": {
+                "id": exchange.answer.id,
+                "answer_text": exchange.answer.answer_text,
+                "confidence_band": exchange.answer.confidence_band,
+                "confidence_value": exchange.answer.confidence_value,
+                "references": list(exchange.answer.references),
+                "assumptions": list(exchange.answer.assumptions),
+                "uncertainty": exchange.answer.uncertainty,
+                "allowed_next_steps": list(exchange.answer.allowed_next_steps),
+                "disallowed_actions": list(exchange.answer.disallowed_actions),
+                "core_reachback_used": exchange.answer.core_reachback_used,
+                "human_review_required": exchange.answer.human_review_required,
+                "timestamp": exchange.answer.timestamp.isoformat(),
+            },
+        }
+        if self.database is not None:
+            self.database.save_document("brain_chat_sessions", exchange.answer.session_id, {"id": exchange.answer.session_id})
+            self.database.save_document("brain_chat_messages", exchange.answer.id, document)
+            self._append_timeline(
+                "brain_chat",
+                "Brain chat answered an advisory question.",
+                {"session_id": exchange.answer.session_id, "answer_id": exchange.answer.id},
+            )
+        return document
+
+    def brain_chat_sessions_document(self) -> dict[str, object]:
+        return {"sessions": self.database.list_documents("brain_chat_sessions") if self.database else []}
+
+    def brain_chat_messages_document(self) -> dict[str, object]:
+        return {"messages": self.database.list_documents("brain_chat_messages") if self.database else []}
+
     def analysis_runs_document(self) -> dict[str, object]:
         return {"analysis_runs": self.database.list_documents("analysis_runs") if self.database else []}
 
@@ -441,6 +494,27 @@ class JINXApplicationService:
                 }
                 for message in dead_letters
             ],
+        }
+
+    def _bounded_core_reachback(self) -> dict[str, object]:
+        if self.database is None:
+            return {}
+        try:
+            mission = self.database.get_document("mission_contexts", "active")
+        except KeyError:
+            mission = {"id": None}
+        try:
+            cop = self.database.get_document("cop_states", "latest")
+        except KeyError:
+            cop = {"id": None, "tracks": []}
+        return {
+            "mission": mission,
+            "cop": cop,
+            "conflicts": self.database.list_documents("conflicts")[-5:],
+            "recommendations": self.database.list_documents("recommendations")[-5:],
+            "mission_impacts": self.database.list_documents("mission_impacts")[-5:],
+            "isr_feeds": self.database.list_documents("isr_feeds")[-5:],
+            "modules": [module["name"] for module in self.module_boundary_document()["modules"]],
         }
 
     @staticmethod

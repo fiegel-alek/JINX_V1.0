@@ -147,6 +147,15 @@ class JINXAPIHandlers:
             tags=self._csv_tuple(payload.get("tags", "")),
         )
 
+    def ask_brain_chat(self, payload: dict[str, str]) -> dict[str, object]:
+        return self.service.ask_brain_chat(
+            text=payload["text"],
+            user_id=payload.get("user_id", "operator-alpha"),
+            role=payload.get("role", "operator"),
+            session_id=payload.get("session_id") or None,
+            use_core_reachback=payload.get("use_core_reachback", "true").lower() != "false",
+        )
+
     @staticmethod
     def _synthetic_confidence() -> ConfidenceScore:
         return ConfidenceScore(
