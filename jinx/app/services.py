@@ -2,6 +2,8 @@
 
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from typing import Any
+from uuid import uuid4
 
 from jinx.brain.chat import BrainChatEngine, BrainChatQuestion
 from jinx.brain.confidence import BrainConfidenceEngine
@@ -834,59 +836,146 @@ class JINXApplicationService:
             packet = self._refresh_operator_loop("bootstrap", {})
         return {"operator_loop": packet}
 
-    def run_c5isr_scenario_pack(self, scenario_id: str) -> dict[str, object]:
-        if self.database is None:
-            raise ValueError("database is required for scenario runs")
-        pack = self._find_scenario_pack(scenario_id)
-        before = self._collection_counts()
-        handler = self._api_handler()
-        mission = handler.submit_mission_context(
-            {
-                "mission_statement": f"Synthetic scenario run: {pack.name}.",
-                "commander_intent": "Exercise advisory C5ISR review paths while preserving human authority.",
-                "route": "Route Alpha",
-                "named_area": "Area Alpha",
-                "timeline": "T+00 to T+60",
+    def simulation_dashboard_document(self) -> dict[str, object]:
+        library = self.simulation_library_document()["simulation_scenarios"]
+        runs = self.simulation_runs_document()["simulation_runs"]
+        control = self.simulation_control_document()["simulation_control"]
+        latest_run = runs[-1] if runs else None
+        mismatch_count = sum(1 for run in runs if run.get("result_state", "matched") != "matched")
+        return {
+            "simulation": {
+                "mode": "deterministic_shadow_mode",
+                "status": control.get("playback_state", "idle"),
+                "library_count": len(library),
+                "custom_scenario_count": sum(1 for scenario in library if scenario.get("source") == "custom"),
+                "run_count": len(runs),
+                "mismatch_count": mismatch_count,
+                "latest_run": latest_run,
+                "recent_runs": runs[-6:],
+                "control": control,
+                "guardrails": [
+                    "Simulation data remains synthetic and clearly labeled.",
+                    "Scenario replay remains advisory and does not touch live adapters.",
+                    "Expected-vs-actual results support human review and regression testing.",
+                ],
             }
-        )
-        injected: list[dict[str, object]] = []
-        for index, inject in enumerate(pack.injects, start=1):
-            injected.append(self._apply_scenario_inject(pack, inject, index))
-
-        brain_question = (
-            f"Given the synthetic scenario {pack.name}, what should the human review across C5ISR, INTEL, NET, "
-            "and mission impact outputs?"
-        )
-        brain_answer = self.ask_brain_chat(
-            text=brain_question,
-            user_id="simulation-operator",
-            role="c5isr_manager",
-            use_core_reachback=True,
-        )
-        after = self._collection_counts()
-        actual_outputs = self._actual_outputs_from_counts(before, after)
-        run_id = f"sim-run-{datetime.now(UTC).strftime('%Y%m%d%H%M%S%f')}"
-        run = {
-            "id": run_id,
-            "scenario_id": pack.id,
-            "scenario_name": pack.name,
-            "mission_context_id": mission["mission"]["id"],
-            "injected": injected,
-            "expected_outputs": list(pack.expected_outputs),
-            "actual_outputs": actual_outputs,
-            "brain_answer_id": brain_answer["answer"]["id"],
-            "status": "human_review_required",
-            "synthetic": True,
-            "timestamp": datetime.now(UTC).isoformat(),
         }
-        self.database.save_document("simulation_runs", run_id, run)
-        self._append_timeline(
-            "simulation_run",
-            f"Scenario {pack.name} replayed for operator-loop review.",
-            {"simulation_run_id": run_id, "scenario_id": pack.id},
+
+    def simulation_library_document(self) -> dict[str, object]:
+        builtin = [self._simulation_scenario_document_from_pack(pack) for pack in default_c5isr_scenario_packs()]
+        custom = list(self.database.list_documents("simulation_scenarios")) if self.database else []
+        scenarios = sorted(
+            builtin + custom,
+            key=lambda scenario: (str(scenario.get("source", "")) != "built_in", str(scenario.get("name", ""))),
         )
-        self._refresh_operator_loop("simulation_run", {"simulation_run_id": run_id})
-        return {"simulation_run": run}
+        return {"simulation_scenarios": scenarios}
+
+    def simulation_runs_document(self) -> dict[str, object]:
+        return {"simulation_runs": self.database.list_documents("simulation_runs") if self.database else []}
+
+    def simulation_control_document(self) -> dict[str, object]:
+        if self.database is None:
+            return {"simulation_control": self._default_simulation_control()}
+        try:
+            control = self.database.get_document("simulation_control", "active")
+        except KeyError:
+            control = self._save_simulation_control(self._default_simulation_control())
+        return {"simulation_control": control}
+
+    def create_simulation_scenario(
+        self,
+        name: str,
+        summary: str,
+        inject_script: str,
+        expected_outputs: tuple[str, ...],
+    ) -> dict[str, object]:
+        if self.database is None:
+            raise ValueError("database is required for simulation scenarios")
+        scenario_id = f"sim-scenario-{uuid4()}"
+        injects = self._parse_simulation_inject_script(inject_script)
+        document = {
+            "id": scenario_id,
+            "name": name,
+            "summary": summary,
+            "source": "custom",
+            "scenario_type": "mixed_inject",
+            "injects": injects,
+            "expected_outputs": list(expected_outputs),
+            "synthetic": True,
+            "duration_seconds": max((inject["offset_seconds"] for inject in injects), default=0),
+            "created_at": datetime.now(UTC).isoformat(),
+        }
+        self.database.save_document("simulation_scenarios", scenario_id, document)
+        self._append_timeline(
+            "simulation_scenario",
+            f"Custom simulation scenario {name} saved.",
+            {"scenario_id": scenario_id},
+        )
+        return {"simulation_scenario": document}
+
+    def update_simulation_control(
+        self,
+        action: str,
+        scenario_id: str = "",
+        offset_seconds: int = 0,
+    ) -> dict[str, object]:
+        if action not in {"select", "play", "pause", "reset", "step", "scrub"}:
+            raise ValueError(f"unsupported simulation control action: {action}")
+        if self.database is None:
+            raise ValueError("database is required for simulation control")
+        control = self.simulation_control_document()["simulation_control"]
+        scenario = self._load_simulation_scenario_document(scenario_id or control.get("selected_scenario_id", ""))
+
+        if action == "select":
+            control.update(self._control_state_for_scenario(scenario, playback_state="idle", action="select"))
+        elif action == "play":
+            run = self._run_simulation_document(scenario)
+            control.update(
+                self._control_state_for_scenario(
+                    scenario,
+                    playback_state="completed",
+                    action="play",
+                    offset_seconds=int(scenario.get("duration_seconds", 0)),
+                    latest_run_id=run["simulation_run"]["id"],
+                )
+            )
+            control = self._save_simulation_control(control)
+            return {"simulation_control": control, "simulation_run": run["simulation_run"]}
+        elif action == "pause":
+            control["playback_state"] = "paused"
+            control["last_action"] = "pause"
+        elif action == "reset":
+            control.update(self._control_state_for_scenario(scenario, playback_state="idle", action="reset"))
+        elif action == "step":
+            next_offset = self._next_simulation_offset(scenario, int(control.get("current_offset_seconds", 0)))
+            control.update(
+                self._control_state_for_scenario(
+                    scenario,
+                    playback_state="stepped",
+                    action="step",
+                    offset_seconds=next_offset,
+                )
+            )
+        elif action == "scrub":
+            control.update(
+                self._control_state_for_scenario(
+                    scenario,
+                    playback_state="scrubbed",
+                    action="scrub",
+                    offset_seconds=max(0, offset_seconds),
+                )
+            )
+
+        control = self._save_simulation_control(control)
+        return {"simulation_control": control}
+
+    def run_simulation_scenario(self, scenario_id: str) -> dict[str, object]:
+        scenario = self._load_simulation_scenario_document(scenario_id)
+        return self._run_simulation_document(scenario)
+
+    def run_c5isr_scenario_pack(self, scenario_id: str) -> dict[str, object]:
+        pack = self._find_scenario_pack(scenario_id)
+        return self._run_simulation_document(self._simulation_scenario_document_from_pack(pack))
 
     def _bounded_core_reachback(self) -> dict[str, object]:
         if self.database is None:
@@ -1136,10 +1225,129 @@ class JINXApplicationService:
             return packs[0]
         raise ValueError(f"unknown scenario pack: {scenario_id}")
 
-    def _apply_scenario_inject(
+    @staticmethod
+    def _simulation_scenario_document_from_pack(pack: C5ISRScenarioPack) -> dict[str, object]:
+        injects = []
+        for index, inject in enumerate(pack.injects):
+            injects.append({"offset_seconds": index * 60, **inject})
+        return {
+            "id": pack.id,
+            "name": pack.name,
+            "summary": pack.summary,
+            "source": "built_in",
+            "scenario_type": "c5isr_pack",
+            "injects": injects,
+            "expected_outputs": list(pack.expected_outputs),
+            "synthetic": True,
+            "duration_seconds": max((inject["offset_seconds"] for inject in injects), default=0),
+            "created_at": datetime.now(UTC).isoformat(),
+        }
+
+    def _load_simulation_scenario_document(self, scenario_id: str) -> dict[str, object]:
+        library = self.simulation_library_document()["simulation_scenarios"]
+        for scenario in library:
+            if scenario["id"] == scenario_id or scenario["name"] == scenario_id:
+                return scenario
+        if library:
+            return library[0]
+        raise ValueError(f"unknown simulation scenario: {scenario_id}")
+
+    def _run_simulation_document(self, scenario: dict[str, object]) -> dict[str, object]:
+        if self.database is None:
+            raise ValueError("database is required for scenario runs")
+        before = self._collection_counts()
+        previous_confidence = self._latest_analysis_confidence_value()
+        handler = self._api_handler()
+        injects = list(scenario.get("injects", []))
+        if not any(inject.get("type") == "mission_context" for inject in injects):
+            handler.submit_mission_context(
+                {
+                    "mission_statement": f"Synthetic scenario run: {scenario['name']}.",
+                    "commander_intent": "Exercise advisory review paths while preserving human authority.",
+                    "route": "Route Alpha",
+                    "named_area": "Area Alpha",
+                    "timeline": "T+00 to T+60",
+                }
+            )
+
+        injected: list[dict[str, object]] = []
+        for index, inject in enumerate(sorted(injects, key=lambda item: int(item.get("offset_seconds", 0))), start=1):
+            injected.append(self._apply_simulation_inject(scenario, inject, index))
+
+        brain_question = (
+            f"Given the synthetic scenario {scenario['name']}, what should the human review across C5ISR, INTEL, "
+            "NET, mission impact, and simulation result outputs?"
+        )
+        brain_answer = self.ask_brain_chat(
+            text=brain_question,
+            user_id="simulation-operator",
+            role="simulation_operator",
+            use_core_reachback=True,
+        )
+        after = self._collection_counts()
+        actual_outputs = self._actual_outputs_from_counts(before, after)
+        expected_outputs = list(scenario.get("expected_outputs", []))
+        missing_outputs = [output for output in expected_outputs if output not in actual_outputs]
+        unexpected_outputs = [output for output in actual_outputs if output not in expected_outputs]
+        latest_confidence = self._latest_analysis_confidence_value()
+        confidence_drift = 0.0
+        if previous_confidence is not None and latest_confidence is not None:
+            confidence_drift = round(latest_confidence - previous_confidence, 3)
+        run_id = f"sim-run-{datetime.now(UTC).strftime('%Y%m%d%H%M%S%f')}"
+        result_state = "matched"
+        if missing_outputs and unexpected_outputs:
+            result_state = "mismatch"
+        elif missing_outputs or unexpected_outputs:
+            result_state = "partial"
+        run = {
+            "id": run_id,
+            "scenario_id": scenario["id"],
+            "scenario_name": scenario["name"],
+            "scenario_source": scenario.get("source", "built_in"),
+            "scenario_type": scenario.get("scenario_type", "mixed_inject"),
+            "injected": injected,
+            "timeline": [
+                {
+                    "offset_seconds": int(inject.get("offset_seconds", 0)),
+                    "type": inject.get("type", "operator_report"),
+                    "summary": inject.get("summary", inject.get("name", "")),
+                }
+                for inject in injects
+            ],
+            "expected_outputs": expected_outputs,
+            "actual_outputs": actual_outputs,
+            "missing_outputs": missing_outputs,
+            "unexpected_outputs": unexpected_outputs,
+            "brain_answer_id": brain_answer["answer"]["id"],
+            "status": "human_review_required",
+            "result_state": result_state,
+            "confidence_drift": confidence_drift,
+            "clock_total_seconds": int(scenario.get("duration_seconds", 0)),
+            "synthetic": True,
+            "timestamp": datetime.now(UTC).isoformat(),
+        }
+        self.database.save_document("simulation_runs", run_id, run)
+        self._save_simulation_control(
+            self._control_state_for_scenario(
+                scenario,
+                playback_state="completed",
+                action="play",
+                offset_seconds=int(scenario.get("duration_seconds", 0)),
+                latest_run_id=run_id,
+            )
+        )
+        self._append_timeline(
+            "simulation_run",
+            f"Scenario {scenario['name']} replayed for simulation-center review.",
+            {"simulation_run_id": run_id, "scenario_id": scenario["id"]},
+        )
+        self._refresh_operator_loop("simulation_run", {"simulation_run_id": run_id})
+        return {"simulation_run": run}
+
+    def _apply_simulation_inject(
         self,
-        pack: C5ISRScenarioPack,
-        inject: dict[str, str],
+        scenario: dict[str, object],
+        inject: dict[str, Any],
         index: int,
     ) -> dict[str, object]:
         inject_type = inject.get("type", "operator_report")
@@ -1150,7 +1358,7 @@ class JINXApplicationService:
                     "reporter_id": inject.get("reporter_id", "operator-alpha"),
                     "device_id": inject.get("device_id", "operator-mini-sim"),
                     "report_type": inject.get("report_type", "observation"),
-                    "summary": inject.get("summary", f"Synthetic scenario report {index}: {pack.name}."),
+                    "summary": inject.get("summary", f"Synthetic scenario report {index}: {scenario['name']}."),
                     "location": inject.get("location", "Route Alpha"),
                 }
             )
@@ -1159,13 +1367,169 @@ class JINXApplicationService:
             return handler.submit_intelligence_summary(
                 {
                     "source_category": "synthetic_scenario_summary",
-                    "summary": inject.get("summary", f"Synthetic scenario INTEL context for {pack.name}."),
+                    "summary": inject.get("summary", f"Synthetic scenario INTEL context for {scenario['name']}."),
                     "reliability": inject.get("reliability", "0.7"),
                     "related_locations": inject.get("related_locations", "Route Alpha,Area Alpha"),
                     "related_entities": inject.get("related_entities", "operator-alpha"),
                 }
             )
+        if inject_type == "isr_feed":
+            handler = self._api_handler()
+            return handler.submit_isr_feed_snapshot(
+                {
+                    "feed_name": inject.get("feed_name", "Synthetic ISR Orbit"),
+                    "feed_type": inject.get("feed_type", "synthetic_full_motion_video"),
+                    "status": inject.get("status", "available"),
+                    "coverage_area": inject.get("coverage_area", "Route Alpha"),
+                    "summary": inject.get("summary", f"Synthetic ISR feed for {scenario['name']}."),
+                    "related_locations": inject.get("related_locations", "Route Alpha"),
+                    "related_entities": inject.get("related_entities", "operator-alpha"),
+                }
+            )
+        if inject_type == "network_plan":
+            handler = self._api_handler()
+            return handler.submit_network_plan(
+                {
+                    "name": inject.get("name", f"Synthetic Network Plan {index}"),
+                    "node_ids": inject.get("node_ids", "node-alpha,node-bravo,node-charlie"),
+                    "timeslots": inject.get(
+                        "timeslots",
+                        "slot-01:node-alpha,slot-01:node-bravo,slot-02:node-charlie",
+                    ),
+                    "los_links": inject.get("los_links", "node-alpha>node-bravo"),
+                    "los_status": inject.get("los_status", "degraded"),
+                    "los_rationale": inject.get(
+                        "los_rationale",
+                        "Synthetic terrain and relay assumptions require network review.",
+                    ),
+                }
+            )
+        if inject_type == "mission_context":
+            handler = self._api_handler()
+            return handler.submit_mission_context(
+                {
+                    "mission_statement": inject.get("mission_statement", f"Synthetic mission for {scenario['name']}."),
+                    "commander_intent": inject.get(
+                        "commander_intent",
+                        "Exercise simulation review without changing human authority boundaries.",
+                    ),
+                    "route": inject.get("route", "Route Alpha"),
+                    "named_area": inject.get("named_area", "Area Alpha"),
+                    "timeline": inject.get("timeline", "T+00 to T+60"),
+                }
+            )
         raise ValueError(f"unsupported scenario inject type: {inject_type}")
+
+    @staticmethod
+    def _parse_simulation_inject_script(script: str) -> list[dict[str, Any]]:
+        injects: list[dict[str, Any]] = []
+        for line_number, raw_line in enumerate(script.splitlines(), start=1):
+            line = raw_line.strip()
+            if not line:
+                continue
+            parts = [part.strip() for part in line.split("|") if part.strip()]
+            if len(parts) < 2:
+                raise ValueError(f"invalid simulation inject line {line_number}: {raw_line}")
+            try:
+                offset_seconds = int(parts[0])
+            except ValueError as exc:
+                raise ValueError(f"invalid inject offset on line {line_number}: {parts[0]}") from exc
+            inject: dict[str, Any] = {"offset_seconds": offset_seconds, "type": parts[1]}
+            for segment in parts[2:]:
+                key, separator, value = segment.partition("=")
+                if not separator:
+                    raise ValueError(f"invalid inject field on line {line_number}: {segment}")
+                inject[key.strip()] = value.strip()
+            injects.append(inject)
+        if not injects:
+            raise ValueError("simulation scenario requires at least one inject")
+        injects.sort(key=lambda item: int(item["offset_seconds"]))
+        return injects
+
+    def _control_state_for_scenario(
+        self,
+        scenario: dict[str, Any],
+        playback_state: str,
+        action: str,
+        offset_seconds: int = 0,
+        latest_run_id: str | None = None,
+    ) -> dict[str, Any]:
+        injects = list(scenario.get("injects", []))
+        current_frame = self._frame_for_offset(injects, offset_seconds)
+        next_frame = self._next_frame_after_offset(injects, offset_seconds)
+        return {
+            "id": "simulation-control-active",
+            "selected_scenario_id": scenario["id"],
+            "selected_scenario_name": scenario["name"],
+            "selected_scenario_source": scenario.get("source", "built_in"),
+            "playback_state": playback_state,
+            "current_offset_seconds": offset_seconds,
+            "duration_seconds": int(scenario.get("duration_seconds", 0)),
+            "current_frame": current_frame,
+            "next_frame": next_frame,
+            "latest_run_id": latest_run_id,
+            "last_action": action,
+            "updated_at": datetime.now(UTC).isoformat(),
+        }
+
+    def _save_simulation_control(self, control: dict[str, Any]) -> dict[str, Any]:
+        if self.database is not None:
+            self.database.save_document("simulation_control", "active", control)
+        return control
+
+    def _default_simulation_control(self) -> dict[str, Any]:
+        scenario = self.simulation_library_document()["simulation_scenarios"][0]
+        return self._control_state_for_scenario(scenario, playback_state="idle", action="bootstrap")
+
+    @staticmethod
+    def _frame_for_offset(injects: list[dict[str, Any]], offset_seconds: int) -> dict[str, Any] | None:
+        current = None
+        for inject in injects:
+            if int(inject.get("offset_seconds", 0)) <= offset_seconds:
+                current = inject
+        if current is None:
+            return None
+        return {
+            "offset_seconds": int(current.get("offset_seconds", 0)),
+            "type": current.get("type", "operator_report"),
+            "summary": current.get(
+                "summary",
+                current.get(
+                    "name",
+                    current.get(
+                        "mission_statement",
+                        current.get("feed_name", current.get("report_type", "")),
+                    ),
+                ),
+            ),
+        }
+
+    @staticmethod
+    def _next_frame_after_offset(injects: list[dict[str, Any]], offset_seconds: int) -> dict[str, Any] | None:
+        for inject in injects:
+            if int(inject.get("offset_seconds", 0)) > offset_seconds:
+                return {
+                    "offset_seconds": int(inject.get("offset_seconds", 0)),
+                    "type": inject.get("type", "operator_report"),
+                    "summary": inject.get(
+                        "summary",
+                        inject.get(
+                            "name",
+                            inject.get(
+                                "mission_statement",
+                                inject.get("feed_name", inject.get("report_type", "")),
+                            ),
+                        ),
+                    ),
+                }
+        return None
+
+    def _next_simulation_offset(self, scenario: dict[str, Any], current_offset: int) -> int:
+        injects = list(scenario.get("injects", []))
+        next_frame = self._next_frame_after_offset(injects, current_offset)
+        if next_frame is None:
+            return int(scenario.get("duration_seconds", current_offset))
+        return int(next_frame["offset_seconds"])
 
     def _api_handler(self):
         from jinx.api import JINXAPIHandlers
@@ -1183,7 +1547,12 @@ class JINXApplicationService:
                 "conflicts",
                 "recommendations",
                 "mission_impacts",
+                "mission_contexts",
                 "brain_chat_messages",
+                "analysis_runs",
+                "intelligence_summaries",
+                "isr_feeds",
+                "network_plans",
             )
         }
 
@@ -1195,7 +1564,12 @@ class JINXApplicationService:
             "conflicts": "core_conflict_packet",
             "recommendations": "human_review_path",
             "mission_impacts": "mission_impact_packet",
+            "mission_contexts": "mission_context_update",
             "brain_chat_messages": "brain_reference_answer",
+            "analysis_runs": "core_analysis",
+            "intelligence_summaries": "intel_summary_ingest",
+            "isr_feeds": "isr_feed_publish",
+            "network_plans": "network_plan_validation",
         }
         outputs = [
             label
@@ -1203,6 +1577,18 @@ class JINXApplicationService:
             if after.get(collection, 0) > before.get(collection, 0)
         ]
         return outputs or ["no_new_outputs"]
+
+    def _latest_analysis_confidence_value(self) -> float | None:
+        if self.database is None:
+            return None
+        runs = self.database.list_documents("analysis_runs")
+        if not runs:
+            return None
+        latest = runs[-1].get("confidence_summary", {})
+        try:
+            return float(latest.get("value"))
+        except (TypeError, ValueError):
+            return None
 
     def _event_from_network_issue(self, issue: NetworkIssue, plan: NetworkPlan) -> Event:
         event_type = EventType.COMMUNICATIONS_LOSS if issue.severity == "high" else EventType.COMMUNICATIONS_CHECK

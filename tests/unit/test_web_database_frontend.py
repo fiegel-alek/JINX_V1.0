@@ -156,6 +156,52 @@ class WebDatabaseFrontendTests(TestCase):
             self.assertEqual(database.count("simulation_runs"), 1)
             self.assertEqual(database.get_document("operator_loop_packets", "active")["id"], "operator-loop-active")
 
+    def test_simulation_control_center_supports_custom_scenarios(self) -> None:
+        with TemporaryDirectory() as tmp:
+            database = SQLiteJINXDatabase(Path(tmp) / "jinx.sqlite3")
+            handlers = JINXAPIHandlers(JINXApplicationService(database=database))
+
+            created = handlers.create_simulation_scenario(
+                {
+                    "name": "Synthetic Mixed Inject Test",
+                    "summary": "Validates mixed simulation inject support.",
+                    "expected_outputs": (
+                        "mission_context_update,"
+                        "operator_report_intake,"
+                        "intel_summary_ingest,"
+                        "network_plan_validation,"
+                        "brain_reference_answer"
+                    ),
+                    "inject_script": (
+                        "0|mission_context|mission_statement=Synthetic mission validation.|route=Route Test|named_area=Area Test\n"
+                        "20|operator_report|reporter_id=operator-test|device_id=operator-mini-test|report_type=hazard|summary=Synthetic route hazard.|location=grid-test\n"
+                        "40|intel_summary|summary=Synthetic route weather context.|related_locations=Route Test\n"
+                        "60|network_plan|name=Test Plan|node_ids=node-alpha,node-bravo|timeslots=slot-01:node-alpha,slot-01:node-bravo|los_links=node-alpha>node-bravo|los_status=degraded"
+                    ),
+                }
+            )
+            scenario_id = created["simulation_scenario"]["id"]
+
+            selected = handlers.update_simulation_control(
+                {"action": "select", "scenario_id": scenario_id}
+            )
+            stepped = handlers.update_simulation_control(
+                {"action": "step", "scenario_id": scenario_id}
+            )
+            run = handlers.run_simulation_scenario({"scenario_id": scenario_id})
+
+            self.assertEqual(selected["simulation_control"]["selected_scenario_id"], scenario_id)
+            self.assertEqual(stepped["simulation_control"]["playback_state"], "stepped")
+            self.assertEqual(run["simulation_run"]["scenario_id"], scenario_id)
+            self.assertIn("operator_report_intake", run["simulation_run"]["actual_outputs"])
+            self.assertIn("brain_reference_answer", run["simulation_run"]["actual_outputs"])
+            self.assertEqual(database.count("simulation_scenarios"), 1)
+            self.assertEqual(database.count("simulation_runs"), 1)
+            self.assertEqual(
+                database.get_document("simulation_control", "active")["selected_scenario_id"],
+                scenario_id,
+            )
+
     def test_api_handler_validates_cop_track(self) -> None:
         with TemporaryDirectory() as tmp:
             database = SQLiteJINXDatabase(Path(tmp) / "jinx.sqlite3")
@@ -222,6 +268,12 @@ class WebDatabaseFrontendTests(TestCase):
         self.assertIn("/api/core/module-boundaries", (static_root / "app.js").read_text(encoding="utf-8"))
         self.assertIn("/api/sim/run-c5isr", (static_root / "app.js").read_text(encoding="utf-8"))
         self.assertIn("/api/sim/runs", (static_root / "app.js").read_text(encoding="utf-8"))
+        self.assertIn("JINX-SIM Control Center", (static_root / "sim.html").read_text(encoding="utf-8"))
+        self.assertIn("/api/sim/dashboard", (static_root / "sim_app.js").read_text(encoding="utf-8"))
+        self.assertIn("/api/sim/library", (static_root / "sim_app.js").read_text(encoding="utf-8"))
+        self.assertIn("/api/sim/control", (static_root / "sim_app.js").read_text(encoding="utf-8"))
+        self.assertIn("/api/sim/scenarios", (static_root / "sim_app.js").read_text(encoding="utf-8"))
+        self.assertIn("/api/sim/run", (static_root / "sim_app.js").read_text(encoding="utf-8"))
         self.assertIn("role-select", (static_root / "index.html").read_text(encoding="utf-8"))
         self.assertIn("Mission Context", (static_root / "index.html").read_text(encoding="utf-8"))
         self.assertIn("Core Ops Console", (static_root / "index.html").read_text(encoding="utf-8"))
@@ -263,6 +315,8 @@ class WebDatabaseFrontendTests(TestCase):
         net_js = (static_root / "net_app.js").read_text(encoding="utf-8")
         intel_html = (static_root / "intel.html").read_text(encoding="utf-8")
         intel_js = (static_root / "intel_app.js").read_text(encoding="utf-8")
+        sim_html = (static_root / "sim.html").read_text(encoding="utf-8")
+        sim_js = (static_root / "sim_app.js").read_text(encoding="utf-8")
 
         self.assertIn("Common Operational Picture", c5isr_html)
         self.assertIn("/api/cop", c5isr_js)
@@ -292,6 +346,20 @@ class WebDatabaseFrontendTests(TestCase):
         self.assertNotIn("Common Operational Picture", intel_html + intel_js)
         self.assertNotIn("Network Manager", intel_html + intel_js)
 
+        self.assertIn("JINX-SIM Control Center", sim_html)
+        self.assertIn("/api/sim/dashboard", sim_js)
+        self.assertIn("/api/sim/library", sim_js)
+        self.assertIn("/api/sim/control", sim_js)
+        self.assertIn("/api/sim/scenarios", sim_js)
+        self.assertIn("/api/sim/run", sim_js)
+        self.assertNotIn("/api/cop", sim_js)
+        self.assertNotIn("/api/net", sim_js)
+        self.assertNotIn("/api/intel", sim_js)
+        self.assertNotIn("/api/operator-reports", sim_js)
+        self.assertNotIn("Common Operational Picture", sim_html + sim_js)
+        self.assertNotIn("Network Manager", sim_html + sim_js)
+        self.assertNotIn("Fusion Desk", sim_html + sim_js)
+
     def test_web_request_handler_enforces_role_permissions(self) -> None:
         handler = JINXRequestHandler.__new__(JINXRequestHandler)
         handler.headers = {"X-JINX-Role": "operator"}
@@ -302,6 +370,7 @@ class WebDatabaseFrontendTests(TestCase):
 
         handler.headers = {"X-JINX-Role": "c5isr_manager"}
         handler._require_permission("operator_report:review")
+        handler._require_permission("sim:read")
         handler._require_permission("sim:inject")
         handler._require_permission("sim:run")
         handler._require_permission("ops:read")
@@ -311,6 +380,12 @@ class WebDatabaseFrontendTests(TestCase):
         handler._require_permission("net:read")
         handler._require_permission("net:submit")
         handler._require_permission("net:review")
+        handler._require_permission("sim:read")
+
+        handler.headers = {"X-JINX-Role": "simulation_operator"}
+        handler._require_permission("sim:read")
+        handler._require_permission("sim:inject")
+        handler._require_permission("sim:run")
 
     def test_web_request_handler_enforces_package_entitlements(self) -> None:
         handler = JINXRequestHandler.__new__(JINXRequestHandler)
@@ -337,6 +412,17 @@ class WebDatabaseFrontendTests(TestCase):
         with self.assertRaises(PermissionError):
             handler._require_permission("net:read")
 
+        handler.headers = {"X-JINX-Role": "simulation_operator", "X-JINX-Package": "sim"}
+        handler._require_permission("sim:read")
+        handler._require_permission("sim:inject")
+        handler._require_permission("sim:run")
+        with self.assertRaises(PermissionError):
+            handler._require_permission("cop:read")
+        with self.assertRaises(PermissionError):
+            handler._require_permission("net:read")
+        with self.assertRaises(PermissionError):
+            handler._require_permission("isr:read")
+
     def test_web_request_handler_maps_package_app_routes(self) -> None:
         self.assertEqual(JINXRequestHandler._app_path("/apps/ops"), "/index.html")
         self.assertEqual(JINXRequestHandler._app_path("/ops"), "/index.html")
@@ -346,6 +432,8 @@ class WebDatabaseFrontendTests(TestCase):
         self.assertEqual(JINXRequestHandler._app_path("/net"), "/net.html")
         self.assertEqual(JINXRequestHandler._app_path("/apps/intel"), "/intel.html")
         self.assertEqual(JINXRequestHandler._app_path("/intel"), "/intel.html")
+        self.assertEqual(JINXRequestHandler._app_path("/apps/sim"), "/sim.html")
+        self.assertEqual(JINXRequestHandler._app_path("/sim"), "/sim.html")
         self.assertIsNone(JINXRequestHandler._app_path("/unknown"))
 
     def test_c5isr_package_redacts_net_specific_payload_details(self) -> None:

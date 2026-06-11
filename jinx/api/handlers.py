@@ -211,6 +211,28 @@ class JINXAPIHandlers:
     def run_c5isr_scenario(self, payload: dict[str, str]) -> dict[str, object]:
         return self.service.run_c5isr_scenario_pack(payload.get("scenario_id", "default"))
 
+    def create_simulation_scenario(self, payload: dict[str, str]) -> dict[str, object]:
+        return self.service.create_simulation_scenario(
+            name=payload["name"],
+            summary=payload["summary"],
+            inject_script=payload["inject_script"],
+            expected_outputs=self._csv_tuple(payload.get("expected_outputs", "")),
+        )
+
+    def update_simulation_control(self, payload: dict[str, str]) -> dict[str, object]:
+        try:
+            offset_seconds = int(payload.get("offset_seconds", "0"))
+        except ValueError as exc:
+            raise ValueError("offset_seconds must be an integer") from exc
+        return self.service.update_simulation_control(
+            action=payload["action"],
+            scenario_id=payload.get("scenario_id", ""),
+            offset_seconds=offset_seconds,
+        )
+
+    def run_simulation_scenario(self, payload: dict[str, str]) -> dict[str, object]:
+        return self.service.run_simulation_scenario(payload.get("scenario_id", "default"))
+
     @staticmethod
     def _synthetic_confidence() -> ConfidenceScore:
         return ConfidenceScore(

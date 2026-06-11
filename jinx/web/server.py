@@ -33,6 +33,7 @@ ROLE_PERMISSIONS = {
             "net:read",
             "net:submit",
             "net:review",
+            "sim:read",
             "sim:inject",
             "sim:run",
         }
@@ -47,11 +48,13 @@ ROLE_PERMISSIONS = {
             "net:submit",
             "net:review",
             "ops:read",
+            "sim:read",
             "sim:run",
         }
     ),
     "intel_analyst": frozenset({"brain:chat", "brain:query", "cop:read", "intel:submit", "isr:read", "isr:write", "ops:read"}),
-    "auditor": frozenset({"audit:read", "brain:chat", "brain:query", "cop:read", "isr:read", "ops:read"}),
+    "simulation_operator": frozenset({"brain:chat", "brain:query", "sim:read", "sim:inject", "sim:run"}),
+    "auditor": frozenset({"audit:read", "brain:chat", "brain:query", "cop:read", "isr:read", "ops:read", "sim:read"}),
     "system_administrator": frozenset({"admin:all"}),
 }
 
@@ -59,7 +62,7 @@ PACKAGE_PROFILES = {
     "full": {
         "label": "Full JINX Package",
         "modules": ("core", "brain", "c5isr", "net", "intel", "sim", "bus"),
-        "apps": ("/apps/ops", "/apps/c5isr", "/apps/net", "/apps/intel"),
+        "apps": ("/apps/ops", "/apps/c5isr", "/apps/net", "/apps/intel", "/apps/sim"),
     },
     "c5isr": {
         "label": "JINX-C5ISR Package",
@@ -76,6 +79,11 @@ PACKAGE_PROFILES = {
         "modules": ("core", "brain", "intel", "sim", "bus"),
         "apps": ("/apps/intel",),
     },
+    "sim": {
+        "label": "JINX-SIM Package",
+        "modules": ("core", "brain", "sim", "bus"),
+        "apps": ("/apps/sim",),
+    },
 }
 
 PACKAGE_PERMISSION_PREFIXES = {
@@ -83,6 +91,7 @@ PACKAGE_PERMISSION_PREFIXES = {
     "c5isr": ("net:", "intel:", "isr:", "ops:"),
     "net": ("operator_report:", "cop:", "mission:", "intel:", "isr:", "human_command:", "ops:"),
     "intel": ("operator_report:", "cop:", "mission:", "net:", "human_command:", "ops:"),
+    "sim": ("operator_report:", "cop:", "mission:", "intel:", "isr:", "net:", "human_command:", "ops:"),
 }
 
 NET_REDACTIONS = {
@@ -302,6 +311,18 @@ class JINXRequestHandler(SimpleHTTPRequestHandler):
                 self._require_permission("net:read")
                 self._send_json(self.server.api_handlers.service.network_advisories_document())
                 return
+            if parsed.path == "/api/sim/dashboard":
+                self._require_permission("sim:read")
+                self._send_json(self.server.api_handlers.service.simulation_dashboard_document())
+                return
+            if parsed.path == "/api/sim/library":
+                self._require_permission("sim:read")
+                self._send_json(self.server.api_handlers.service.simulation_library_document())
+                return
+            if parsed.path == "/api/sim/control":
+                self._require_permission("sim:read")
+                self._send_json(self.server.api_handlers.service.simulation_control_document())
+                return
             if parsed.path == "/api/human-commands":
                 self._require_permission("cop:read")
                 self._send_json({"human_commands": self.server.database.list_documents("human_commands")})
@@ -323,7 +344,7 @@ class JINXRequestHandler(SimpleHTTPRequestHandler):
                 )
                 return
             if parsed.path == "/api/sim/c5isr-scenarios":
-                self._require_permission("cop:read")
+                self._require_any_permission("cop:read", "sim:read")
                 self._send_json(
                     {
                         "scenario_packs": [
@@ -340,8 +361,8 @@ class JINXRequestHandler(SimpleHTTPRequestHandler):
                 )
                 return
             if parsed.path == "/api/sim/runs":
-                self._require_permission("cop:read")
-                self._send_json({"simulation_runs": self.server.database.list_documents("simulation_runs")})
+                self._require_any_permission("cop:read", "sim:read")
+                self._send_json(self.server.api_handlers.service.simulation_runs_document())
                 return
             if parsed.path == "/":
                 self.path = "/index.html"
@@ -409,6 +430,18 @@ class JINXRequestHandler(SimpleHTTPRequestHandler):
                 self._require_permission("sim:run")
                 self._send_json(self.server.api_handlers.run_c5isr_scenario(payload), status=201)
                 return
+            if parsed.path == "/api/sim/scenarios":
+                self._require_permission("sim:inject")
+                self._send_json(self.server.api_handlers.create_simulation_scenario(payload), status=201)
+                return
+            if parsed.path == "/api/sim/control":
+                self._require_permission("sim:run")
+                self._send_json(self.server.api_handlers.update_simulation_control(payload), status=200)
+                return
+            if parsed.path == "/api/sim/run":
+                self._require_permission("sim:run")
+                self._send_json(self.server.api_handlers.run_simulation_scenario(payload), status=201)
+                return
             self._send_json({"error": "not found"}, status=404)
         except PermissionError as exc:
             self._send_json({"error": str(exc)}, status=403)
@@ -453,6 +486,16 @@ class JINXRequestHandler(SimpleHTTPRequestHandler):
             raise PermissionError(f"package {self._package()} lacks entitlement for {permission}")
         raise PermissionError(f"role {role} lacks permission {permission}")
 
+    def _require_any_permission(self, *permissions_to_check: str) -> None:
+        for permission in permissions_to_check:
+            try:
+                self._require_permission(permission)
+                return
+            except PermissionError:
+                continue
+        permissions = ", ".join(permissions_to_check)
+        raise PermissionError(f"role {self._role()} lacks permission {permissions}")
+
     def _package_allows(self, permission: str) -> bool:
         denied_prefixes = PACKAGE_PERMISSION_PREFIXES[self._package()]
         return not any(permission.startswith(prefix) for prefix in denied_prefixes)
@@ -468,6 +511,8 @@ class JINXRequestHandler(SimpleHTTPRequestHandler):
             "/net": "/net.html",
             "/apps/intel": "/intel.html",
             "/intel": "/intel.html",
+            "/apps/sim": "/sim.html",
+            "/sim": "/sim.html",
         }
         return mapping.get(path)
 

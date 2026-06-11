@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>JINX-SIM Control Center</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <aside class="nav-rail" aria-label="JINX-SIM">
+        <div class="brand">
+          <span class="brand-mark">JS</span>
+          <div>
+            <strong>JINX-SIM</strong>
+            <small>Control Center</small>
+          </div>
+        </div>
+        <nav>
+          <a href="#library">Library</a>
+          <a href="#control">Control</a>
+          <a href="#results">Results</a>
+          <a href="#brain">BRAIN</a>
+        </nav>
+        <div class="rail-note">
+          <span id="api-status" class="status-dot"></span>
+          <span id="api-status-text">Checking API</span>
+        </div>
+      </aside>
+
+      <section class="main">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">SIM package</p>
+            <h1>Simulation Control Center</h1>
+          </div>
+          <div class="top-actions">
+            <label class="role-picker">
+              Active role
+              <select id="role-select">
+                <option value="simulation_operator" selected>Simulation operator</option>
+                <option value="c5isr_manager">C5ISR manager</option>
+                <option value="system_administrator">System administrator</option>
+              </select>
+            </label>
+            <button id="refresh-button" type="button">Refresh</button>
+          </div>
+        </header>
+
+        <section class="metrics" aria-label="SIM metrics">
+          <article class="metric">
+            <span>Scenario Library</span>
+            <strong id="metric-library">0</strong>
+          </article>
+          <article class="metric">
+            <span>Custom Scenarios</span>
+            <strong id="metric-custom">0</strong>
+          </article>
+          <article class="metric">
+            <span>Simulation Runs</span>
+            <strong id="metric-runs">0</strong>
+          </article>
+          <article class="metric">
+            <span>Mismatches</span>
+            <strong id="metric-mismatch">0</strong>
+          </article>
+        </section>
+
+        <section class="operations" id="library">
+          <section class="panel">
+            <div class="section-head">
+              <h2>Scenario Library</h2>
+              <span id="library-count">0</span>
+            </div>
+            <div id="scenario-library-list" class="list empty">No simulation scenarios</div>
+          </section>
+
+          <section class="panel">
+            <div class="section-head">
+              <h2>Mixed Inject Builder</h2>
+              <span>Synthetic only</span>
+            </div>
+            <form id="scenario-form" class="form">
+              <div class="form-grid">
+                <label>
+                  Scenario name
+                  <input name="name" value="Cross-Domain Route Degradation" required />
+                </label>
+                <label>
+                  Expected outputs
+                  <input
+                    name="expected_outputs"
+                    value="mission_context_update,operator_report_intake,intel_summary_ingest,isr_feed_publish,network_plan_validation,brain_reference_answer"
+                    required
+                  />
+                </label>
+              </div>
+              <label>
+                Summary
+                <textarea name="summary" required>Mixed synthetic injects for operator report, ISR weather context, and communications degradation across the same route.</textarea>
+              </label>
+              <label>
+                Inject script
+                <textarea name="inject_script" required>0|mission_context|mission_statement=Monitor Route Alpha under synthetic weather degradation.|route=Route Alpha|named_area=Area Alpha|timeline=T+00 to T+40
+30|operator_report|reporter_id=operator-alpha|device_id=operator-mini-sim|report_type=hazard|summary=Operator reports movement delay and reduced visibility near Route Alpha.|location=grid-alpha
+60|intel_summary|summary=Synthetic weather and terrain context may degrade route timing and sensor confidence.|related_locations=Route Alpha,Area Alpha|related_entities=operator-alpha
+90|isr_feed|feed_name=Synthetic ISR Orbit Alpha|status=available|coverage_area=Route Alpha|summary=ISR feed confirms intermittent route visibility windows.
+120|network_plan|name=Route Alpha Relay Plan|node_ids=node-alpha,node-bravo|timeslots=slot-01:node-alpha,slot-01:node-bravo|los_links=node-alpha>node-bravo|los_status=degraded|los_rationale=Synthetic ridge line and weather cell reduce path quality.</textarea>
+              </label>
+              <button type="submit">Save Scenario</button>
+            </form>
+          </section>
+        </section>
+
+        <section class="data-grid two" id="control">
+          <section class="panel">
+            <div class="section-head">
+              <h2>Replay Control</h2>
+              <span id="control-status">idle</span>
+            </div>
+            <div id="control-summary" class="list empty">No scenario selected</div>
+            <div class="review-row">
+              <button type="button" data-control-action="select">Load</button>
+              <button type="button" data-run-scenario="selected">Run Full Replay</button>
+              <button type="button" data-control-action="pause">Pause</button>
+              <button type="button" data-control-action="step">Step</button>
+              <button type="button" data-control-action="reset">Reset</button>
+            </div>
+            <form id="scrub-form" class="form">
+              <label>
+                Scrub clock (seconds)
+                <input name="offset_seconds" type="number" min="0" value="60" />
+              </label>
+              <button type="submit">Scrub</button>
+            </form>
+          </section>
+
+          <section class="panel">
+            <div class="section-head">
+              <h2>Selected Timeline</h2>
+              <span id="timeline-count">0</span>
+            </div>
+            <div id="scenario-timeline-list" class="list empty">No inject timeline loaded</div>
+          </section>
+        </section>
+
+        <section class="data-grid two" id="results">
+          <section class="panel">
+            <div class="section-head">
+              <h2>Latest Result</h2>
+              <span id="latest-result-status">none</span>
+            </div>
+            <div id="latest-result-card" class="list empty">No simulation run yet</div>
+          </section>
+
+          <section class="panel">
+            <div class="section-head">
+              <h2>Run History</h2>
+              <span id="run-count">0</span>
+            </div>
+            <div id="simulation-run-list" class="list empty">No simulation runs</div>
+          </section>
+        </section>
+
+        <section class="data-grid two" id="brain">
+          <section class="panel">
+            <div class="section-head">
+              <h2>Expected Vs Actual</h2>
+              <span id="comparison-count">0</span>
+            </div>
+            <div id="comparison-list" class="list empty">No comparison packet yet</div>
+          </section>
+
+          <section class="panel">
+            <div class="section-head">
+              <h2>JINX-BRAIN Chat</h2>
+              <span id="brain-chat-count">0</span>
+            </div>
+            <form id="brain-chat-form" class="form">
+              <label>
+                Question
+                <textarea name="text" required>What should the human review first when a synthetic route delay combines operator reporting, ISR degradation, and communications risk?</textarea>
+              </label>
+              <input type="hidden" name="user_id" value="simulation-operator" />
+              <input type="hidden" name="use_core_reachback" value="true" />
+              <button type="submit">Ask BRAIN</button>
+            </form>
+            <div id="brain-chat-list" class="list empty">No Brain chat yet</div>
+          </section>
+        </section>
+      </section>
+    </main>
+    <script src="/sim_app.js"></script>
+  </body>
+</html>
