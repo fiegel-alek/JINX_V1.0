@@ -126,6 +126,25 @@ class WebDatabaseFrontendTests(TestCase):
             self.assertTrue(handlers.service.provenance_document()["provenance"])
             self.assertTrue(handlers.service.module_boundary_document()["modules"])
 
+    def test_sprint5_operator_loop_and_scenario_runner(self) -> None:
+        with TemporaryDirectory() as tmp:
+            database = SQLiteJINXDatabase(Path(tmp) / "jinx.sqlite3")
+            handlers = JINXAPIHandlers(JINXApplicationService(database=database))
+
+            run = handlers.run_c5isr_scenario({"scenario_id": "c5isr-comms-loss-isr-weather-impact"})
+            loop = handlers.service.operator_loop_document()["operator_loop"]
+            console = handlers.service.core_ops_console_document()
+
+            self.assertEqual(run["simulation_run"]["scenario_id"], "c5isr-comms-loss-isr-weather-impact")
+            self.assertIn("operator_report_intake", run["simulation_run"]["actual_outputs"])
+            self.assertIn("brain_reference_answer", run["simulation_run"]["actual_outputs"])
+            self.assertEqual(loop["status"], "human_review_required")
+            self.assertTrue(loop["flow_steps"])
+            self.assertEqual(console["authority"], "advisory_only_human_in_the_loop")
+            self.assertEqual(console["live_adapters"], "disabled")
+            self.assertEqual(database.count("simulation_runs"), 1)
+            self.assertEqual(database.get_document("operator_loop_packets", "active")["id"], "operator-loop-active")
+
     def test_api_handler_validates_cop_track(self) -> None:
         with TemporaryDirectory() as tmp:
             database = SQLiteJINXDatabase(Path(tmp) / "jinx.sqlite3")
@@ -173,12 +192,19 @@ class WebDatabaseFrontendTests(TestCase):
         self.assertIn("/api/sim/c5isr-scenarios", (static_root / "app.js").read_text(encoding="utf-8"))
         self.assertIn("/api/core/analysis-runs", (static_root / "app.js").read_text(encoding="utf-8"))
         self.assertIn("/api/core/explanations", (static_root / "app.js").read_text(encoding="utf-8"))
+        self.assertIn("/api/core/ops-console", (static_root / "app.js").read_text(encoding="utf-8"))
+        self.assertIn("/api/core/operator-loop", (static_root / "app.js").read_text(encoding="utf-8"))
         self.assertIn("/api/brain/query", (static_root / "app.js").read_text(encoding="utf-8"))
         self.assertIn("/api/brain/chat", (static_root / "app.js").read_text(encoding="utf-8"))
         self.assertIn("/api/brain/chat-messages", (static_root / "app.js").read_text(encoding="utf-8"))
         self.assertIn("/api/core/module-boundaries", (static_root / "app.js").read_text(encoding="utf-8"))
+        self.assertIn("/api/sim/run-c5isr", (static_root / "app.js").read_text(encoding="utf-8"))
+        self.assertIn("/api/sim/runs", (static_root / "app.js").read_text(encoding="utf-8"))
         self.assertIn("role-select", (static_root / "index.html").read_text(encoding="utf-8"))
         self.assertIn("Mission Context", (static_root / "index.html").read_text(encoding="utf-8"))
+        self.assertIn("Core Ops Console", (static_root / "index.html").read_text(encoding="utf-8"))
+        self.assertIn("Operator Loop", (static_root / "index.html").read_text(encoding="utf-8"))
+        self.assertIn("Simulation Runs", (static_root / "index.html").read_text(encoding="utf-8"))
         self.assertIn("C5ISR Review Center", (static_root / "index.html").read_text(encoding="utf-8"))
         self.assertIn("Core Analysis Runs", (static_root / "index.html").read_text(encoding="utf-8"))
         self.assertIn("JINX-BRAIN Chat", (static_root / "index.html").read_text(encoding="utf-8"))
@@ -200,6 +226,8 @@ class WebDatabaseFrontendTests(TestCase):
         handler.headers = {"X-JINX-Role": "c5isr_manager"}
         handler._require_permission("operator_report:review")
         handler._require_permission("sim:inject")
+        handler._require_permission("sim:run")
+        handler._require_permission("ops:read")
 
     def test_api_handler_demo_data_is_available_through_database_shape(self) -> None:
         with TemporaryDirectory() as tmp:

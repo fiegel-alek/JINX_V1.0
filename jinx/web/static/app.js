@@ -11,9 +11,12 @@ const els = {
   reviewCenterList: document.querySelector("#review-center-list"),
   missionImpactList: document.querySelector("#mission-impact-list"),
   scenarioPackList: document.querySelector("#scenario-pack-list"),
+  simRunList: document.querySelector("#sim-run-list"),
   advisoryList: document.querySelector("#advisory-list"),
   eventList: document.querySelector("#event-list"),
   timelineList: document.querySelector("#timeline-list"),
+  opsConsoleList: document.querySelector("#ops-console-list"),
+  operatorLoopList: document.querySelector("#operator-loop-list"),
   conflictList: document.querySelector("#conflict-list"),
   recommendationList: document.querySelector("#recommendation-list"),
   analysisRunList: document.querySelector("#analysis-run-list"),
@@ -249,6 +252,21 @@ function renderScenarioPacks(packs) {
       <strong>${escapeHTML(pack.name)}</strong>
       <span>${escapeHTML(pack.summary)}</span>
       <span>expects: ${escapeHTML((pack.expected_outputs || []).join(", "))}</span>
+      <div class="review-row">
+        <button type="button" data-run-scenario="${escapeHTML(pack.id)}">Run scenario</button>
+      </div>
+    </article>
+  `);
+}
+
+function renderSimulationRuns(runs) {
+  document.querySelector("#sim-run-count").textContent = runs.length;
+  renderList(els.simRunList, runs.slice(-6).reverse(), "No scenario runs", (run) => `
+    <article class="item scenario">
+      <strong>${escapeHTML(run.scenario_name)} · ${escapeHTML(run.status)}</strong>
+      <span>actual: ${escapeHTML((run.actual_outputs || []).join(", ") || "none")}</span>
+      <span>expected: ${escapeHTML((run.expected_outputs || []).join(", ") || "none")}</span>
+      <span>BRAIN answer: ${escapeHTML(run.brain_answer_id)}</span>
     </article>
   `);
 }
@@ -403,6 +421,39 @@ function renderTimeline(timeline) {
   `);
 }
 
+function renderOpsConsole(consoleState) {
+  const counts = consoleState.counts || {};
+  document.querySelector("#ops-console-count").textContent = consoleState.mode || "unknown";
+  renderList(els.opsConsoleList, [
+    {
+      title: `Authority · ${consoleState.authority || "unknown"}`,
+      detail: `live adapters ${consoleState.live_adapters || "unknown"} · routes ${consoleState.delivered_routes || 0}/${consoleState.denied_routes || 0}`,
+      extra: `reports ${counts.operator_reports || 0} · conflicts ${counts.conflicts || 0} · impacts ${counts.mission_impacts || 0} · chat ${counts.brain_chat_messages || 0}`,
+    },
+    {
+      title: "Licensed Modules",
+      detail: (consoleState.licensed_modules || []).join(", ") || "none",
+      extra: `audit ${consoleState.audit_records || 0} · provenance ${consoleState.provenance_records || 0}`,
+    },
+  ], "No ops console", (item) => `
+    <article class="item ops">
+      <strong>${escapeHTML(item.title)}</strong>
+      <span>${escapeHTML(item.detail)}</span>
+      <span>${escapeHTML(item.extra)}</span>
+    </article>
+  `);
+}
+
+function renderOperatorLoop(packet) {
+  document.querySelector("#operator-loop-status").textContent = packet.status || "unknown";
+  renderList(els.operatorLoopList, packet.flow_steps || [], "No operator loop packet", (step) => `
+    <article class="item operator-loop">
+      <strong>${escapeHTML(step.label)} · ${escapeHTML(step.state)}</strong>
+      <span>count ${escapeHTML(step.count)} · latest ${escapeHTML(step.latest_id || "none")}</span>
+    </article>
+  `);
+}
+
 function renderModules(modules) {
   els.moduleList.innerHTML = modules.map((module) => `
     <article class="module-card">
@@ -436,6 +487,8 @@ async function refreshDashboard() {
       missionImpacts,
       advisories,
       events,
+      opsConsole,
+      operatorLoop,
       conflicts,
       recommendations,
       analysisRuns,
@@ -448,6 +501,7 @@ async function refreshDashboard() {
       isrFeeds,
       timeline,
       scenarios,
+      simRuns,
       modules,
     ] = await Promise.all([
       getJSON("/api/health"),
@@ -459,6 +513,8 @@ async function refreshDashboard() {
       getJSON("/api/mission-impacts"),
       getJSON("/api/advisories"),
       getJSON("/api/events"),
+      getJSON("/api/core/ops-console"),
+      getJSON("/api/core/operator-loop"),
       getJSON("/api/conflicts"),
       getJSON("/api/recommendations"),
       getJSON("/api/core/analysis-runs"),
@@ -471,6 +527,7 @@ async function refreshDashboard() {
       getOptionalJSON("/api/isr-feeds", { isr_feeds: [] }),
       getJSON("/api/timeline"),
       getJSON("/api/sim/c5isr-scenarios"),
+      getJSON("/api/sim/runs"),
       getJSON("/api/modules"),
     ]);
     setStatus(true, `${health.service} API online`);
@@ -482,6 +539,8 @@ async function refreshDashboard() {
     renderMissionImpacts(missionImpacts.mission_impacts || []);
     renderAdvisories(advisories.advisories || []);
     renderEvents(events.events || []);
+    renderOpsConsole(opsConsole);
+    renderOperatorLoop(operatorLoop.operator_loop || {});
     renderConflicts(conflicts.conflicts || []);
     renderRecommendations(recommendations.recommendations || []);
     renderAnalysisRuns(analysisRuns.analysis_runs || []);
@@ -494,6 +553,7 @@ async function refreshDashboard() {
     renderISRFeeds(isrFeeds.isr_feeds || []);
     renderTimeline(timeline.timeline || []);
     renderScenarioPacks(scenarios.scenario_packs || []);
+    renderSimulationRuns(simRuns.simulation_runs || []);
     renderModules(modules.modules || []);
   } catch (error) {
     setStatus(false, "API offline");
@@ -610,6 +670,20 @@ els.reportList.addEventListener("click", async (event) => {
   if (!button) return;
   try {
     await updateReportReview(button.dataset.review, button.dataset.state);
+  } catch (error) {
+    addActivity(error.message);
+  }
+});
+
+els.scenarioPackList.addEventListener("click", async (event) => {
+  const button = event.target.closest("[data-run-scenario]");
+  if (!button) return;
+  try {
+    const response = await postJSON("/api/sim/run-c5isr", {
+      scenario_id: button.dataset.runScenario,
+    });
+    addActivity(`Scenario ${response.simulation_run.scenario_name} produced ${response.simulation_run.actual_outputs.length} outputs.`);
+    await refreshDashboard();
   } catch (error) {
     addActivity(error.message);
   }

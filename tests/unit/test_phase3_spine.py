@@ -37,6 +37,8 @@ class Phase3SpineTests(TestCase):
         access.register_user(c5isr_manager)
         self.assertTrue(access.may(c5isr_manager.id, "operator_report:review"))
         self.assertTrue(access.may(c5isr_manager.id, "sim:inject"))
+        self.assertTrue(access.may(c5isr_manager.id, "sim:run"))
+        self.assertTrue(access.may(c5isr_manager.id, "ops:read"))
         self.assertFalse(access.may(c5isr_manager.id, "human_command:submit"))
 
         commander = User(

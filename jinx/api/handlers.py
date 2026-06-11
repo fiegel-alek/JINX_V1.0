@@ -156,6 +156,9 @@ class JINXAPIHandlers:
             use_core_reachback=payload.get("use_core_reachback", "true").lower() != "false",
         )
 
+    def run_c5isr_scenario(self, payload: dict[str, str]) -> dict[str, object]:
+        return self.service.run_c5isr_scenario_pack(payload.get("scenario_id", "default"))
+
     @staticmethod
     def _synthetic_confidence() -> ConfidenceScore:
         return ConfidenceScore(

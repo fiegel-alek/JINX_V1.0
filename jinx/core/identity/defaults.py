@@ -18,6 +18,7 @@ def build_default_access_control() -> AccessControl:
                     "brain:chat",
                     "human_command:submit",
                     "cop:read",
+                    "ops:read",
                     "advisory:review",
                     "operator_report:review",
                     "isr:read",
@@ -36,19 +37,21 @@ def build_default_access_control() -> AccessControl:
                     "brain:query",
                     "cop:read",
                     "cop:write",
+                    "ops:read",
                     "advisory:review",
                     "intel:submit",
                     "isr:read",
                     "isr:write",
                     "mission:write",
                     "sim:inject",
+                    "sim:run",
                 }
             ),
             description="Manages C5ISR report review and COP state.",
         ),
         Role(
             name="operator",
-            permissions=frozenset({"brain:chat", "operator_report:submit", "cop_advisory:read"}),
+            permissions=frozenset({"brain:chat", "operator_report:submit", "cop_advisory:read", "ops:read"}),
             description="Submits field reports and reads C5ISR advisories.",
         ),
         Role(
@@ -59,13 +62,22 @@ def build_default_access_control() -> AccessControl:
         Role(
             name="intel_analyst",
             permissions=frozenset(
-                {"brain:chat", "brain:query", "intel:review", "intel:submit", "isr:read", "isr:write", "advisory:review"}
+                {
+                    "brain:chat",
+                    "brain:query",
+                    "intel:review",
+                    "intel:submit",
+                    "isr:read",
+                    "isr:write",
+                    "ops:read",
+                    "advisory:review",
+                }
             ),
             description="Reviews intelligence-derived summaries and impacts.",
         ),
         Role(
             name="auditor",
-            permissions=frozenset({"audit:read", "brain:chat", "brain:query", "provenance:read"}),
+            permissions=frozenset({"audit:read", "brain:chat", "brain:query", "ops:read", "provenance:read"}),
             description="Reviews audit and provenance trails.",
         ),
     ):

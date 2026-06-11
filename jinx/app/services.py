@@ -24,6 +24,7 @@ from jinx.core.schemas import (
 )
 from jinx.modules.c5isr import C5ISRIntakeResult, C5ISRReportIntake, COPManager, MissionImpactAnalyzer
 from jinx.modules.intel import IntelligenceFusionEngine, IntelligenceFusionResult, IntelligenceSummary, ISRFeedSnapshot
+from jinx.modules.sim import C5ISRScenarioPack, default_c5isr_scenario_packs
 
 
 @dataclass(frozen=True, slots=True)
@@ -93,6 +94,7 @@ class JINXApplicationService:
         self._events.append(intake.event)
         self._persist_operator_report(report, intake, report_route, advisory_route)
         core_analysis = self._run_core_analysis()
+        self._refresh_operator_loop("operator_report", {"report_id": report.id, "event_id": intake.event.id})
         return OperatorReportResult(
             intake=intake,
             report_route=report_route,
@@ -167,6 +169,7 @@ class JINXApplicationService:
 
         self._persist_intelligence_summary(summary, fusion, tuple(impact_routes), tuple(events))
         core_analysis = self._run_core_analysis()
+        self._refresh_operator_loop("intel_summary", {"summary_id": summary.id})
         return IntelligenceIngestResult(fusion=fusion, impact_routes=tuple(impact_routes), core_analysis=core_analysis)
 
     def ingest_isr_feed_snapshot(self, snapshot: ISRFeedSnapshot) -> RouteResult:
@@ -214,6 +217,7 @@ class JINXApplicationService:
                     "timestamp": snapshot.timestamp.isoformat(),
                 },
             )
+            self._refresh_operator_loop("isr_feed", {"feed_id": snapshot.id})
         return result
 
     def set_mission_context(self, mission: MissionContext) -> dict[str, object]:
@@ -228,6 +232,7 @@ class JINXApplicationService:
                 {"mission_id": mission.id},
             )
             self._persist_mission_impacts(self._mission_impacts())
+            self._refresh_operator_loop("mission_context", {"mission_id": mission.id})
         return document
 
     def validate_cop_track(self, entity_id: str, reviewer_id: str, note: str = "") -> dict[str, object]:
@@ -410,6 +415,7 @@ class JINXApplicationService:
                 "Brain chat answered an advisory question.",
                 {"session_id": exchange.answer.session_id, "answer_id": exchange.answer.id},
             )
+            self._refresh_operator_loop("brain_chat", {"answer_id": exchange.answer.id})
         return document
 
     def brain_chat_sessions_document(self) -> dict[str, object]:
@@ -496,6 +502,110 @@ class JINXApplicationService:
             ],
         }
 
+    def core_ops_console_document(self) -> dict[str, object]:
+        if self.database is None:
+            counts = {}
+        else:
+            counts = {
+                "operator_reports": self.database.count("operator_reports"),
+                "events": self.database.count("events"),
+                "conflicts": self.database.count("conflicts"),
+                "recommendations": self.database.count("recommendations"),
+                "mission_impacts": self.database.count("mission_impacts"),
+                "isr_feeds": self.database.count("isr_feeds"),
+                "brain_chat_messages": self.database.count("brain_chat_messages"),
+                "simulation_runs": self.database.count("simulation_runs"),
+            }
+        boundary = self.module_boundary_document()
+        return {
+            "mode": "simulation_first",
+            "live_adapters": "disabled",
+            "authority": "advisory_only_human_in_the_loop",
+            "health": {
+                "core": "online",
+                "brain": "online",
+                "c5isr": "online",
+                "sim": "online",
+                "bus": "online",
+            },
+            "counts": counts,
+            "licensed_modules": [module["name"] for module in boundary["modules"]],
+            "delivered_routes": len(boundary["routes"]),
+            "denied_routes": len(boundary["dead_letters"]),
+            "audit_records": len(self.audit_document()["audit_records"]),
+            "provenance_records": len(self.provenance_document()["provenance"]),
+            "active_operator_loop": self.operator_loop_document()["operator_loop"],
+            "guardrails": [
+                "JINX-Core produces advisory analysis only.",
+                "Human input is required for command decisions.",
+                "Synthetic, mock, open, or explicitly authorized data only.",
+                "Real-world adapters remain controlled plugins.",
+            ],
+        }
+
+    def operator_loop_document(self) -> dict[str, object]:
+        if self.database is None:
+            return {"operator_loop": self._build_operator_loop_packet("memory_only", {})}
+        try:
+            packet = self.database.get_document("operator_loop_packets", "active")
+        except KeyError:
+            packet = self._refresh_operator_loop("bootstrap", {})
+        return {"operator_loop": packet}
+
+    def run_c5isr_scenario_pack(self, scenario_id: str) -> dict[str, object]:
+        if self.database is None:
+            raise ValueError("database is required for scenario runs")
+        pack = self._find_scenario_pack(scenario_id)
+        before = self._collection_counts()
+        handler = self._api_handler()
+        mission = handler.submit_mission_context(
+            {
+                "mission_statement": f"Synthetic scenario run: {pack.name}.",
+                "commander_intent": "Exercise advisory C5ISR review paths while preserving human authority.",
+                "route": "Route Alpha",
+                "named_area": "Area Alpha",
+                "timeline": "T+00 to T+60",
+            }
+        )
+        injected: list[dict[str, object]] = []
+        for index, inject in enumerate(pack.injects, start=1):
+            injected.append(self._apply_scenario_inject(pack, inject, index))
+
+        brain_question = (
+            f"Given the synthetic scenario {pack.name}, what should the human review across C5ISR, INTEL, NET, "
+            "and mission impact outputs?"
+        )
+        brain_answer = self.ask_brain_chat(
+            text=brain_question,
+            user_id="simulation-operator",
+            role="c5isr_manager",
+            use_core_reachback=True,
+        )
+        after = self._collection_counts()
+        actual_outputs = self._actual_outputs_from_counts(before, after)
+        run_id = f"sim-run-{datetime.now(UTC).strftime('%Y%m%d%H%M%S%f')}"
+        run = {
+            "id": run_id,
+            "scenario_id": pack.id,
+            "scenario_name": pack.name,
+            "mission_context_id": mission["mission"]["id"],
+            "injected": injected,
+            "expected_outputs": list(pack.expected_outputs),
+            "actual_outputs": actual_outputs,
+            "brain_answer_id": brain_answer["answer"]["id"],
+            "status": "human_review_required",
+            "synthetic": True,
+            "timestamp": datetime.now(UTC).isoformat(),
+        }
+        self.database.save_document("simulation_runs", run_id, run)
+        self._append_timeline(
+            "simulation_run",
+            f"Scenario {pack.name} replayed for operator-loop review.",
+            {"simulation_run_id": run_id, "scenario_id": pack.id},
+        )
+        self._refresh_operator_loop("simulation_run", {"simulation_run_id": run_id})
+        return {"simulation_run": run}
+
     def _bounded_core_reachback(self) -> dict[str, object]:
         if self.database is None:
             return {}
@@ -516,6 +626,184 @@ class JINXApplicationService:
             "isr_feeds": self.database.list_documents("isr_feeds")[-5:],
             "modules": [module["name"] for module in self.module_boundary_document()["modules"]],
         }
+
+    def _refresh_operator_loop(self, reason: str, related_ids: dict[str, str]) -> dict[str, object]:
+        packet = self._build_operator_loop_packet(reason, related_ids)
+        if self.database is not None:
+            self.database.save_document("operator_loop_packets", "active", packet)
+        return packet
+
+    def _build_operator_loop_packet(self, reason: str, related_ids: dict[str, str]) -> dict[str, object]:
+        if self.database is None:
+            return {
+                "id": "operator-loop-memory",
+                "reason": reason,
+                "status": "memory_only",
+                "flow_steps": [],
+                "allowed_next_steps": [],
+                "disallowed_actions": [],
+            }
+        reports = self.database.list_documents("operator_reports")
+        events = self.database.list_documents("events")
+        advisories = self.database.list_documents("cop_advisories")
+        conflicts = self.database.list_documents("conflicts")
+        recommendations = self.database.list_documents("recommendations")
+        impacts = self.database.list_documents("mission_impacts")
+        intel = self.database.list_documents("intelligence_summaries")
+        isr = self.database.list_documents("isr_feeds")
+        analysis_runs = self.database.list_documents("analysis_runs")
+        brain_messages = self.database.list_documents("brain_chat_messages")
+        review_items = self.review_center_document()["items"]
+        open_reviews = [
+            item for item in review_items if item.get("review_state") not in {"validated", "closed"}
+        ]
+        status = "human_review_required" if open_reviews or conflicts or impacts else "monitoring"
+        latest_brain = brain_messages[-1] if brain_messages else None
+        return {
+            "id": "operator-loop-active",
+            "reason": reason,
+            "related_ids": related_ids,
+            "status": status,
+            "summary": (
+                "Operator Mini feeds C5ISR; Core analyzes conflicts and impacts; BRAIN supplies references; "
+                "humans retain decision authority."
+            ),
+            "flow_steps": [
+                self._loop_step("operator_mini", "Operator Mini intake", len(reports), reports[-1]["id"] if reports else None),
+                self._loop_step("c5isr", "C5ISR event/advisory generation", len(events) + len(advisories), events[-1]["id"] if events else None),
+                self._loop_step("intel_isr", "INTEL/ISR context", len(intel) + len(isr), isr[-1]["id"] if isr else (intel[-1]["id"] if intel else None)),
+                self._loop_step("core", "Core analysis and conflict detection", len(analysis_runs), analysis_runs[-1]["id"] if analysis_runs else None),
+                self._loop_step("brain", "BRAIN doctrine/SOP reference", len(brain_messages), latest_brain["answer"]["id"] if latest_brain else None),
+                self._loop_step("human_review", "Human review queue", len(open_reviews), open_reviews[-1]["id"] if open_reviews else None),
+            ],
+            "latest_report_id": reports[-1]["id"] if reports else None,
+            "latest_event_id": events[-1]["id"] if events else None,
+            "latest_conflict_id": conflicts[-1]["id"] if conflicts else None,
+            "latest_recommendation_id": recommendations[-1]["id"] if recommendations else None,
+            "latest_mission_impact_id": impacts[-1]["id"] if impacts else None,
+            "latest_brain_answer_id": latest_brain["answer"]["id"] if latest_brain else None,
+            "open_review_count": len(open_reviews),
+            "confidence_band": self._loop_confidence_band(conflicts, impacts, recommendations),
+            "allowed_next_steps": [
+                "Review linked reports, conflicts, recommendations, and mission impacts.",
+                "Ask JINX-BRAIN for doctrine/SOP references with Core reachback enabled.",
+                "Validate or close review items only through a human reviewer.",
+            ],
+            "disallowed_actions": [
+                "Do not treat JINX output as an operational order.",
+                "Do not use JINX to authorize targeting, weapons effects, or autonomous action.",
+                "Do not retask ISR or modify live systems from this advisory packet.",
+            ],
+            "timestamp": datetime.now(UTC).isoformat(),
+        }
+
+    @staticmethod
+    def _loop_step(name: str, label: str, count: int, latest_id: str | None) -> dict[str, object]:
+        return {
+            "name": name,
+            "label": label,
+            "count": count,
+            "latest_id": latest_id,
+            "state": "active" if count else "waiting",
+        }
+
+    @staticmethod
+    def _loop_confidence_band(
+        conflicts: tuple[dict[str, object], ...],
+        impacts: tuple[dict[str, object], ...],
+        recommendations: tuple[dict[str, object], ...],
+    ) -> str:
+        values = [
+            float(item.get("confidence", 0.0))
+            for collection in (conflicts, impacts, recommendations)
+            for item in collection
+        ]
+        if not values:
+            return "unknown"
+        average = sum(values) / len(values)
+        if average >= 0.75:
+            return "high"
+        if average >= 0.5:
+            return "medium"
+        return "low"
+
+    @staticmethod
+    def _find_scenario_pack(scenario_id: str) -> C5ISRScenarioPack:
+        packs = default_c5isr_scenario_packs()
+        for pack in packs:
+            if pack.id == scenario_id or pack.name == scenario_id:
+                return pack
+        if scenario_id in {"", "default"}:
+            return packs[0]
+        raise ValueError(f"unknown scenario pack: {scenario_id}")
+
+    def _apply_scenario_inject(
+        self,
+        pack: C5ISRScenarioPack,
+        inject: dict[str, str],
+        index: int,
+    ) -> dict[str, object]:
+        inject_type = inject.get("type", "operator_report")
+        if inject_type == "operator_report":
+            handler = self._api_handler()
+            return handler.submit_operator_report(
+                {
+                    "reporter_id": inject.get("reporter_id", "operator-alpha"),
+                    "device_id": inject.get("device_id", "operator-mini-sim"),
+                    "report_type": inject.get("report_type", "observation"),
+                    "summary": inject.get("summary", f"Synthetic scenario report {index}: {pack.name}."),
+                    "location": inject.get("location", "Route Alpha"),
+                }
+            )
+        if inject_type == "intel_summary":
+            handler = self._api_handler()
+            return handler.submit_intelligence_summary(
+                {
+                    "source_category": "synthetic_scenario_summary",
+                    "summary": inject.get("summary", f"Synthetic scenario INTEL context for {pack.name}."),
+                    "reliability": inject.get("reliability", "0.7"),
+                    "related_locations": inject.get("related_locations", "Route Alpha,Area Alpha"),
+                    "related_entities": inject.get("related_entities", "operator-alpha"),
+                }
+            )
+        raise ValueError(f"unsupported scenario inject type: {inject_type}")
+
+    def _api_handler(self):
+        from jinx.api import JINXAPIHandlers
+
+        return JINXAPIHandlers(self)
+
+    def _collection_counts(self) -> dict[str, int]:
+        if self.database is None:
+            return {}
+        return {
+            collection: self.database.count(collection)
+            for collection in (
+                "operator_reports",
+                "events",
+                "conflicts",
+                "recommendations",
+                "mission_impacts",
+                "brain_chat_messages",
+            )
+        }
+
+    @staticmethod
+    def _actual_outputs_from_counts(before: dict[str, int], after: dict[str, int]) -> list[str]:
+        labels = {
+            "operator_reports": "operator_report_intake",
+            "events": "c5isr_event_generation",
+            "conflicts": "core_conflict_packet",
+            "recommendations": "human_review_path",
+            "mission_impacts": "mission_impact_packet",
+            "brain_chat_messages": "brain_reference_answer",
+        }
+        outputs = [
+            label
+            for collection, label in labels.items()
+            if after.get(collection, 0) > before.get(collection, 0)
+        ]
+        return outputs or ["no_new_outputs"]
 
     @staticmethod
     def layer_config_document() -> dict[str, object]:

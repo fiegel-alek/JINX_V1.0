@@ -14,13 +14,14 @@ from jinx.core.persistence import SQLiteJINXDatabase
 from jinx.modules.sim import default_c5isr_scenario_packs
 
 ROLE_PERMISSIONS = {
-    "operator": frozenset({"brain:chat", "operator_report:submit", "cop:read"}),
-    "commander": frozenset({"human_command:submit", "cop:read", "operator_report:review", "isr:read"}),
+    "operator": frozenset({"brain:chat", "operator_report:submit", "cop:read", "ops:read"}),
+    "commander": frozenset({"human_command:submit", "cop:read", "operator_report:review", "isr:read", "ops:read"}),
     "c5isr_manager": frozenset(
         {
             "audit:read",
             "brain:query",
             "brain:chat",
+            "ops:read",
             "operator_report:submit",
             "operator_report:review",
             "cop:read",
@@ -30,10 +31,11 @@ ROLE_PERMISSIONS = {
             "isr:write",
             "mission:write",
             "sim:inject",
+            "sim:run",
         }
     ),
-    "intel_analyst": frozenset({"brain:chat", "brain:query", "cop:read", "intel:submit", "isr:read", "isr:write"}),
-    "auditor": frozenset({"audit:read", "brain:chat", "brain:query", "cop:read", "isr:read"}),
+    "intel_analyst": frozenset({"brain:chat", "brain:query", "cop:read", "intel:submit", "isr:read", "isr:write", "ops:read"}),
+    "auditor": frozenset({"audit:read", "brain:chat", "brain:query", "cop:read", "isr:read", "ops:read"}),
     "system_administrator": frozenset({"admin:all"}),
 }
 
@@ -119,6 +121,14 @@ class JINXRequestHandler(SimpleHTTPRequestHandler):
                 self._require_permission("cop:read")
                 self._send_json(self.server.api_handlers.service.explanations_document())
                 return
+            if parsed.path == "/api/core/ops-console":
+                self._require_permission("ops:read")
+                self._send_json(self.server.api_handlers.service.core_ops_console_document())
+                return
+            if parsed.path == "/api/core/operator-loop":
+                self._require_permission("ops:read")
+                self._send_json(self.server.api_handlers.service.operator_loop_document())
+                return
             if parsed.path == "/api/core/audit":
                 self._require_permission("audit:read")
                 self._send_json(self.server.api_handlers.service.audit_document())
@@ -196,6 +206,10 @@ class JINXRequestHandler(SimpleHTTPRequestHandler):
                     }
                 )
                 return
+            if parsed.path == "/api/sim/runs":
+                self._require_permission("cop:read")
+                self._send_json({"simulation_runs": self.server.database.list_documents("simulation_runs")})
+                return
             if parsed.path == "/":
                 self.path = "/index.html"
             super().do_GET()
@@ -245,6 +259,10 @@ class JINXRequestHandler(SimpleHTTPRequestHandler):
             if parsed.path == "/api/sim/demo":
                 self._require_permission("sim:inject")
                 self._send_json(self._inject_demo_reports(), status=201)
+                return
+            if parsed.path == "/api/sim/run-c5isr":
+                self._require_permission("sim:run")
+                self._send_json(self.server.api_handlers.run_c5isr_scenario(payload), status=201)
                 return
             self._send_json({"error": "not found"}, status=404)
         except PermissionError as exc:
