@@ -3,62 +3,116 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>JINX COP</title>
+    <title>JINX COP Manager</title>
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
-    <main class="shell">
-      <header class="topbar">
-        <div>
-          <p class="eyebrow">JINX-C5ISR</p>
-          <h1>Common Operational Picture</h1>
+    <main class="app-shell">
+      <aside class="nav-rail" aria-label="JINX modules">
+        <div class="brand">
+          <span class="brand-mark">JX</span>
+          <div>
+            <strong>JINX</strong>
+            <small>COP Manager</small>
+          </div>
         </div>
-        <div class="status">
+        <nav>
+          <a href="#cop">COP</a>
+          <a href="#reports">Reports</a>
+          <a href="#advisories">Advisories</a>
+          <a href="#modules">Modules</a>
+          <a href="#sim">SIM</a>
+        </nav>
+        <div class="rail-note">
           <span id="api-status" class="status-dot"></span>
           <span id="api-status-text">Checking API</span>
         </div>
-      </header>
+      </aside>
 
-      <section class="workspace">
-        <section class="map-panel" aria-label="COP map">
-          <div class="map-grid" id="cop-map">
-            <div class="map-crosshair"></div>
+      <section class="main">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">JINX-C5ISR / Operator Mini</p>
+            <h1>Common Operational Picture</h1>
           </div>
+          <div class="top-actions">
+            <button id="refresh-button" type="button">Refresh</button>
+            <button id="demo-button" type="button">Inject Demo</button>
+          </div>
+        </header>
+
+        <section class="metrics" aria-label="COP metrics">
+          <article class="metric">
+            <span>Tracks</span>
+            <strong id="metric-tracks">0</strong>
+          </article>
+          <article class="metric">
+            <span>Reports</span>
+            <strong id="metric-reports">0</strong>
+          </article>
+          <article class="metric">
+            <span>Advisories</span>
+            <strong id="metric-advisories">0</strong>
+          </article>
+          <article class="metric">
+            <span>Events</span>
+            <strong id="metric-events">0</strong>
+          </article>
         </section>
 
-        <aside class="side-panel">
-          <section class="panel">
-            <h2>Tracks</h2>
-            <div id="track-list" class="list empty">No tracks loaded</div>
+        <section class="dashboard" id="cop">
+          <section class="map-card" aria-label="COP map">
+            <div class="section-head">
+              <h2>COP Map</h2>
+              <span id="cop-name">empty</span>
+            </div>
+            <div class="map-grid" id="cop-map">
+              <div class="map-crosshair"></div>
+            </div>
           </section>
 
-          <section class="panel">
-            <h2>Operator Report</h2>
+          <section class="panel track-panel">
+            <div class="section-head">
+              <h2>Tracks</h2>
+              <span id="track-count">0 active</span>
+            </div>
+            <div id="track-list" class="list empty">No tracks loaded</div>
+          </section>
+        </section>
+
+        <section class="operations">
+          <section class="panel" id="reports">
+            <div class="section-head">
+              <h2>Operator Report</h2>
+              <span>Operator Mini</span>
+            </div>
             <form id="report-form" class="form">
-              <label>
-                Reporter
-                <input name="reporter_id" value="operator-alpha" required />
-              </label>
-              <label>
-                Device
-                <input name="device_id" value="operator-mini-001" required />
-              </label>
-              <label>
-                Type
-                <select name="report_type">
-                  <option value="observation">Observation</option>
-                  <option value="communications_check">Communications check</option>
-                  <option value="position_update">Position update</option>
-                  <option value="status_update">Status update</option>
-                  <option value="medical">Medical</option>
-                  <option value="logistics">Logistics</option>
-                  <option value="hazard">Hazard</option>
-                </select>
-              </label>
-              <label>
-                Location
-                <input name="location" value="synthetic-grid-alpha" required />
-              </label>
+              <div class="form-grid">
+                <label>
+                  Reporter
+                  <input name="reporter_id" value="operator-alpha" required />
+                </label>
+                <label>
+                  Device
+                  <input name="device_id" value="operator-mini-001" required />
+                </label>
+                <label>
+                  Type
+                  <select name="report_type">
+                    <option value="observation">Observation</option>
+                    <option value="communications_check">Communications check</option>
+                    <option value="position_update">Position update</option>
+                    <option value="status_update">Status update</option>
+                    <option value="medical">Medical</option>
+                    <option value="logistics">Logistics</option>
+                    <option value="hazard">Hazard</option>
+                  </select>
+                </label>
+                <label>
+                  Location
+                  <input name="location" value="synthetic-grid-alpha" required />
+                </label>
+              </div>
               <label>
                 Summary
                 <textarea name="summary" required>Synthetic operator observation from COP interface.</textarea>
@@ -66,21 +120,88 @@
               <button type="submit">Submit Report</button>
             </form>
           </section>
-        </aside>
-      </section>
 
-      <section class="lower">
-        <section class="panel">
-          <h2>Latest Activity</h2>
-          <div id="activity-list" class="list empty">No activity yet</div>
+          <section class="panel">
+            <div class="section-head">
+              <h2>Human Command Input</h2>
+              <span>Human-originated only</span>
+            </div>
+            <form id="command-form" class="form">
+              <div class="form-grid">
+                <label>
+                  User
+                  <input name="issuing_user_id" value="commander-alpha" required />
+                </label>
+                <label>
+                  Device
+                  <input name="device_id" value="operator-mini-001" required />
+                </label>
+                <label>
+                  Role
+                  <input name="issuing_role" value="commander" required />
+                </label>
+                <label>
+                  Target
+                  <select name="target_module">
+                    <option value="jinx-c5isr">JINX-C5ISR</option>
+                    <option value="jinx-core">JINX-Core</option>
+                  </select>
+                </label>
+              </div>
+              <input type="hidden" name="command_type" value="human_direction" />
+              <label>
+                Command Text
+                <textarea name="text" required>Synthetic human coordination input for review.</textarea>
+              </label>
+              <button type="submit">Submit Human Input</button>
+            </form>
+          </section>
         </section>
-        <section class="panel">
-          <h2>Guardrails</h2>
-          <ul class="guardrails">
-            <li>Core does not originate command authority.</li>
-            <li>Operator reports remain human-originated field observations.</li>
-            <li>C5ISR returns advisories, not autonomous orders.</li>
-          </ul>
+
+        <section class="data-grid">
+          <section class="panel">
+            <div class="section-head">
+              <h2>Report Inbox</h2>
+              <span id="report-count">0</span>
+            </div>
+            <div id="report-list" class="list empty">No reports</div>
+          </section>
+          <section class="panel" id="advisories">
+            <div class="section-head">
+              <h2>Advisories</h2>
+              <span id="advisory-count">0</span>
+            </div>
+            <div id="advisory-list" class="list empty">No advisories</div>
+          </section>
+          <section class="panel">
+            <div class="section-head">
+              <h2>Event Timeline</h2>
+              <span id="event-count">0</span>
+            </div>
+            <div id="event-list" class="list empty">No events</div>
+          </section>
+        </section>
+
+        <section class="data-grid two">
+          <section class="panel" id="modules">
+            <div class="section-head">
+              <h2>Module Status</h2>
+              <span>Phase 3/4</span>
+            </div>
+            <div id="module-list" class="module-grid"></div>
+          </section>
+          <section class="panel" id="sim">
+            <div class="section-head">
+              <h2>Simulation / Guardrails</h2>
+              <span>Advisory only</span>
+            </div>
+            <div id="activity-list" class="list empty">No activity yet</div>
+            <ul class="guardrails">
+              <li>Core does not originate command authority.</li>
+              <li>Operator reports remain human-originated field observations.</li>
+              <li>C5ISR returns advisories, not autonomous orders.</li>
+            </ul>
+          </section>
         </section>
       </section>
     </main>

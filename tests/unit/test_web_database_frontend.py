@@ -54,6 +54,27 @@ class WebDatabaseFrontendTests(TestCase):
     def test_static_cop_frontend_assets_exist(self) -> None:
         static_root = Path("jinx/web/static")
 
-        self.assertIn("JINX COP", (static_root / "index.html").read_text(encoding="utf-8"))
+        self.assertIn("JINX COP Manager", (static_root / "index.html").read_text(encoding="utf-8"))
         self.assertIn("/api/cop", (static_root / "app.js").read_text(encoding="utf-8"))
+        self.assertIn("/api/sim/demo", (static_root / "app.js").read_text(encoding="utf-8"))
         self.assertIn(".map-grid", (static_root / "styles.css").read_text(encoding="utf-8"))
+        self.assertIn(".module-grid", (static_root / "styles.css").read_text(encoding="utf-8"))
+
+    def test_api_handler_demo_data_is_available_through_database_shape(self) -> None:
+        with TemporaryDirectory() as tmp:
+            database = SQLiteJINXDatabase(Path(tmp) / "jinx.sqlite3")
+            handlers = JINXAPIHandlers(JINXApplicationService(database=database))
+
+            handlers.submit_operator_report(
+                {
+                    "reporter_id": "operator-alpha",
+                    "device_id": "operator-mini-001",
+                    "report_type": "position_update",
+                    "summary": "Synthetic dashboard report.",
+                    "location": "grid-alpha",
+                }
+            )
+
+            self.assertEqual(database.count("operator_reports"), 1)
+            self.assertEqual(database.count("events"), 1)
+            self.assertEqual(database.count("cop_advisories"), 1)

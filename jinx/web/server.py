@@ -43,6 +43,30 @@ class JINXRequestHandler(SimpleHTTPRequestHandler):
         if parsed.path == "/api/operator-reports":
             self._send_json({"operator_reports": self.server.database.list_documents("operator_reports")})
             return
+        if parsed.path == "/api/events":
+            self._send_json({"events": self.server.database.list_documents("events")})
+            return
+        if parsed.path == "/api/advisories":
+            self._send_json({"advisories": self.server.database.list_documents("cop_advisories")})
+            return
+        if parsed.path == "/api/human-commands":
+            self._send_json({"human_commands": self.server.database.list_documents("human_commands")})
+            return
+        if parsed.path == "/api/modules":
+            self._send_json(
+                {
+                    "modules": [
+                        {"name": "JINX-Core", "status": "online", "role": "AI advisory processing"},
+                        {"name": "JINX-BRAIN", "status": "online", "role": "Doctrine/SOP knowledge"},
+                        {"name": "JINX-C5ISR", "status": "online", "role": "COP and operator intake"},
+                        {"name": "JINX-NET", "status": "stubbed", "role": "Synthetic MTDL validation"},
+                        {"name": "JINX-INTEL", "status": "stubbed", "role": "Synthetic/authorized fusion"},
+                        {"name": "JINX-SIM", "status": "online", "role": "Synthetic scenario replay"},
+                        {"name": "JINX-BUS", "status": "online", "role": "Policy-enforced routing"},
+                    ]
+                }
+            )
+            return
         if parsed.path == "/":
             self.path = "/index.html"
         super().do_GET()
@@ -56,6 +80,9 @@ class JINXRequestHandler(SimpleHTTPRequestHandler):
                 return
             if parsed.path == "/api/human-commands":
                 self._send_json(self.server.api_handlers.submit_human_command(payload), status=201)
+                return
+            if parsed.path == "/api/sim/demo":
+                self._send_json(self._inject_demo_reports(), status=201)
                 return
             self._send_json({"error": "not found"}, status=404)
         except (KeyError, ValueError, json.JSONDecodeError) as exc:
@@ -81,6 +108,33 @@ class JINXRequestHandler(SimpleHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
+
+    def _inject_demo_reports(self) -> dict[str, Any]:
+        demo_reports = (
+            {
+                "reporter_id": "operator-alpha",
+                "device_id": "operator-mini-001",
+                "report_type": "position_update",
+                "summary": "Synthetic position update from operator alpha.",
+                "location": "grid-alpha",
+            },
+            {
+                "reporter_id": "operator-bravo",
+                "device_id": "operator-mini-002",
+                "report_type": "communications_check",
+                "summary": "Synthetic communications check from operator bravo.",
+                "location": "grid-bravo",
+            },
+            {
+                "reporter_id": "operator-charlie",
+                "device_id": "operator-mini-003",
+                "report_type": "hazard",
+                "summary": "Synthetic hazard observation requiring C5ISR review.",
+                "location": "grid-charlie",
+            },
+        )
+        responses = [self.server.api_handlers.submit_operator_report(report) for report in demo_reports]
+        return {"injected": len(responses), "reports": responses}
 
 
 def run_server(
