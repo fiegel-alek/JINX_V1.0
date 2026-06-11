@@ -160,7 +160,7 @@ class Phase2ComponentTests(TestCase):
             (event,), doctrine_query="communications", doctrine_tags=frozenset({"review"})
         )
 
-        self.assertEqual(len(context.doctrine_references), 1)
+        self.assertGreaterEqual(len(context.doctrine_references), 1)
 
     def test_network_validator_flags_synthetic_issues(self) -> None:
         status = NetworkStatus(

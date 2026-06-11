@@ -20,6 +20,30 @@ def build_synthetic_doctrine_repository() -> DoctrineRepository:
                 tags=frozenset({"communications", "review", "simulation"}),
             ),
             DoctrineRecord(
+                title="Synthetic MTDL Timeslot Review SOP",
+                scope=DoctrineScope.SOP,
+                summary=(
+                    "Synthetic MTDL timing conflicts should be preserved as advisory network-review packets, "
+                    "correlated with C5ISR mission assumptions, and replayed before any plan changes are accepted."
+                ),
+                source="synthetic-doctrine-fixture",
+                applicability=("timeslot conflict review", "mtdl network validation", "network manager review"),
+                restrictions=("Synthetic training reference only.", "Does not authorize live network changes."),
+                tags=frozenset({"network", "mtdl", "timeslot", "communications", "review"}),
+            ),
+            DoctrineRecord(
+                title="Synthetic LOS Risk Review TACSOP",
+                scope=DoctrineScope.TACSOP,
+                summary=(
+                    "Synthetic LOS warnings should identify affected nodes, explain terrain or relay assumptions, "
+                    "and request human network-manager review before mission communication assumptions are changed."
+                ),
+                source="synthetic-doctrine-fixture",
+                applicability=("line of sight review", "network feasibility check", "communications risk"),
+                restrictions=("Synthetic training reference only.", "Does not authorize radio control."),
+                tags=frozenset({"network", "los", "communications", "review"}),
+            ),
+            DoctrineRecord(
                 title="Synthetic COP Location Conflict Review TACSOP",
                 scope=DoctrineScope.TACSOP,
                 summary=(

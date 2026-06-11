@@ -7,6 +7,7 @@ from jinx.core.schemas import Location, MissionContext, MissionTask
 from jinx.common.types.confidence import ConfidenceScore
 from jinx.core.provenance import ProvenanceRecord
 from jinx.modules.intel import IntelligenceSummary, ISRFeedSnapshot
+from jinx.modules.net import LOSLink, NetworkNode, NetworkPlan, SyntheticNetworkPlanParser, TimeslotAllocation
 from datetime import UTC, datetime
 
 
@@ -99,6 +100,27 @@ class JINXAPIHandlers:
         result = self.service.ingest_isr_feed_snapshot(snapshot)
         return {"feed_id": snapshot.id, "delivered_to_bus": result.delivered}
 
+    def submit_network_plan(self, payload: dict[str, str]) -> dict[str, object]:
+        if payload.get("plan_text", "").strip():
+            plan = SyntheticNetworkPlanParser().parse(
+                payload["plan_text"],
+                confidence=self._synthetic_confidence(),
+                provenance=self._synthetic_provenance("jinx-api.net-plan"),
+                source_format=payload.get("source_format", "synthetic_optasklink_stub"),
+            )
+        else:
+            plan = self._network_plan_from_payload(payload)
+        result = self.service.submit_network_plan(plan)
+        return {
+            "plan_id": plan.id,
+            "validation_run_id": result.validation_run.id,
+            "issue_ids": [issue.id for issue in result.issues],
+            "issues": len(result.issues),
+            "delivered_to_core": all(route.delivered for route in result.issue_routes),
+            "conflicts": len(result.core_analysis.conflicts) if result.core_analysis else 0,
+            "recommendations": len(result.core_analysis.recommendations) if result.core_analysis else 0,
+        }
+
     def submit_mission_context(self, payload: dict[str, str]) -> dict[str, object]:
         mission = MissionContext(
             mission_statement=payload.get(
@@ -140,6 +162,36 @@ class JINXAPIHandlers:
             note=payload.get("note", ""),
         )
         return {"track": track}
+
+    def _network_plan_from_payload(self, payload: dict[str, str]) -> NetworkPlan:
+        node_ids = self._csv_tuple(payload.get("node_ids", "node-alpha,node-bravo"))
+        nodes = tuple(
+            NetworkNode(node_id, node_id.replace("-", " ").title(), "terminal")
+            for node_id in node_ids
+        )
+        timeslots = tuple(
+            TimeslotAllocation(slot.strip(), node.strip(), payload.get("epoch", "epoch-alpha"))
+            for slot, node in self._pairs(payload.get("timeslots", "slot-01:node-alpha,slot-01:node-bravo"))
+        )
+        los_links = tuple(
+            LOSLink(
+                pair[0],
+                pair[1],
+                payload.get("los_status", "degraded"),
+                payload.get("los_rationale", "Synthetic terrain or relay assumption requires review."),
+            )
+            for pair in self._node_pairs(payload.get("los_links", "node-alpha>node-bravo"))
+        )
+        return NetworkPlan(
+            name=payload.get("name", "Synthetic MTDL Network Plan"),
+            nodes=nodes,
+            timeslots=timeslots,
+            los_links=los_links,
+            confidence=self._synthetic_confidence(),
+            provenance=self._synthetic_provenance("jinx-api.net-plan"),
+            data_mode=DataMode.SYNTHETIC,
+            source_format=payload.get("source_format", "synthetic_form"),
+        )
 
     def query_brain(self, payload: dict[str, str]) -> dict[str, object]:
         return self.service.brain_query_document(
@@ -185,3 +237,21 @@ class JINXAPIHandlers:
     @staticmethod
     def _csv_tuple(value: str) -> tuple[str, ...]:
         return tuple(item.strip() for item in value.split(",") if item.strip())
+
+    @staticmethod
+    def _pairs(value: str) -> tuple[tuple[str, str], ...]:
+        pairs = []
+        for item in value.split(","):
+            left, separator, right = item.partition(":")
+            if separator and left.strip() and right.strip():
+                pairs.append((left.strip(), right.strip()))
+        return tuple(pairs)
+
+    @staticmethod
+    def _node_pairs(value: str) -> tuple[tuple[str, str], ...]:
+        pairs = []
+        for item in value.split(","):
+            left, separator, right = item.partition(">")
+            if separator and left.strip() and right.strip():
+                pairs.append((left.strip(), right.strip()))
+        return tuple(pairs)

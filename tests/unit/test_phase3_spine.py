@@ -50,6 +50,16 @@ class Phase3SpineTests(TestCase):
         self.assertTrue(access.may(commander.id, "human_command:submit"))
         self.assertTrue(access.may(commander.id, "operator_report:review"))
 
+        network_manager = User(
+            username="net.manager",
+            display_name="Network Manager",
+            roles=frozenset({"network_manager"}),
+        )
+        access.register_user(network_manager)
+        self.assertTrue(access.may(network_manager.id, "net:submit"))
+        self.assertTrue(access.may(network_manager.id, "net:review"))
+        self.assertFalse(access.may(network_manager.id, "human_command:submit"))
+
     def test_config_rejects_real_adapters_while_simulation_first(self) -> None:
         with TemporaryDirectory() as tmp:
             with self.assertRaises(ValueError):

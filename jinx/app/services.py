@@ -13,16 +13,18 @@ from jinx.brain.knowledge.repository import DoctrineRepository
 from jinx.brain.learner import ConservativeLearner
 from jinx.brain.option_generation import BrainOptionGenerator
 from jinx.bus import FabricMessage, MessageRouter, RouteResult
-from jinx.common.types import DataMode
+from jinx.common.types import DataMode, EventType
 from jinx.core.audit import AuditLog
 from jinx.core.policy import PolicyEngine
 from jinx.core.persistence import SQLiteJINXDatabase
+from jinx.core.provenance import ProvenanceRecord
 from jinx.core.reasoning import CoreReasoningResult, CoreReasoningWorkflow
 from jinx.core.registry import build_default_registry
 from jinx.core.schemas import (
     ConflictPacket,
     Event,
     HumanCommandInput,
+    Location,
     MissionContext,
     MissionImpactPacket,
     OperatorReport,
@@ -30,6 +32,7 @@ from jinx.core.schemas import (
 )
 from jinx.modules.c5isr import C5ISRIntakeResult, C5ISRReportIntake, COPManager, MissionImpactAnalyzer
 from jinx.modules.intel import IntelligenceFusionEngine, IntelligenceFusionResult, IntelligenceSummary, ISRFeedSnapshot
+from jinx.modules.net import NetworkIssue, NetworkPlan, NetworkValidationRun, NetworkValidator
 from jinx.modules.sim import C5ISRScenarioPack, default_c5isr_scenario_packs
 
 
@@ -45,6 +48,14 @@ class OperatorReportResult:
 class IntelligenceIngestResult:
     fusion: IntelligenceFusionResult
     impact_routes: tuple[RouteResult, ...]
+    core_analysis: object | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class NetworkPlanResult:
+    validation_run: NetworkValidationRun
+    issues: tuple[NetworkIssue, ...]
+    issue_routes: tuple[RouteResult, ...]
     core_analysis: object | None = None
 
 
@@ -68,6 +79,7 @@ class JINXApplicationService:
         self.brain_options = BrainOptionGenerator()
         self.brain_learner = ConservativeLearner()
         self.intel_fusion = IntelligenceFusionEngine()
+        self.network_validator = NetworkValidator()
         self.mission_impact_analyzer = MissionImpactAnalyzer()
         self.mission_context: MissionContext | None = None
         self._events: list[Event] = []
@@ -147,6 +159,49 @@ class JINXApplicationService:
                 },
             )
         return result
+
+    def submit_network_plan(self, plan: NetworkPlan) -> NetworkPlanResult:
+        validation_run, issues = self.network_validator.validate_plan(plan)
+        routes: list[RouteResult] = []
+        events: list[Event] = []
+        for issue in issues:
+            routes.append(
+                self.router.route(
+                    FabricMessage(
+                        source_module="jinx-net",
+                        destination="jinx-core",
+                        payload_schema="network_issue.v1",
+                        schema_version="1.0",
+                        sensitivity_label="synthetic",
+                        license_scope="net",
+                        provenance_ref=issue.id,
+                        payload={
+                            "id": issue.id,
+                            "issue_type": issue.issue_type,
+                            "summary": issue.summary,
+                            "affected_nodes": list(issue.affected_nodes),
+                            "confidence": issue.confidence.value,
+                            "severity": issue.severity,
+                            "recommended_review_role": issue.recommended_review_role,
+                        },
+                        data_mode=plan.data_mode,
+                        confidence=issue.confidence,
+                    )
+                )
+            )
+            event = self._event_from_network_issue(issue, plan)
+            events.append(event)
+            self._events.append(event)
+
+        self._persist_network_plan(plan, validation_run, issues, tuple(routes), tuple(events))
+        core_analysis = self._run_core_analysis()
+        self._refresh_operator_loop("network_plan", {"plan_id": plan.id, "validation_run_id": validation_run.id})
+        return NetworkPlanResult(
+            validation_run=validation_run,
+            issues=tuple(issues),
+            issue_routes=tuple(routes),
+            core_analysis=core_analysis,
+        )
 
     def ingest_intelligence_summary(self, summary: IntelligenceSummary) -> IntelligenceIngestResult:
         fusion = self.intel_fusion.fuse((summary,))
@@ -548,6 +603,18 @@ class JINXApplicationService:
             ]
         }
 
+    def network_plans_document(self) -> dict[str, object]:
+        return {"network_plans": self.database.list_documents("network_plans") if self.database else []}
+
+    def network_issues_document(self) -> dict[str, object]:
+        return {"network_issues": self.database.list_documents("network_issues") if self.database else []}
+
+    def network_validation_runs_document(self) -> dict[str, object]:
+        return {"network_validation_runs": self.database.list_documents("network_validation_runs") if self.database else []}
+
+    def network_advisories_document(self) -> dict[str, object]:
+        return {"network_advisories": self.database.list_documents("network_advisories") if self.database else []}
+
     def analysis_runs_document(self) -> dict[str, object]:
         return {"analysis_runs": self.database.list_documents("analysis_runs") if self.database else []}
 
@@ -666,6 +733,8 @@ class JINXApplicationService:
                 "brain_options": self.database.count("brain_options"),
                 "learning_proposals": self.database.count("learning_proposals"),
                 "policy_decisions": self.database.count("policy_decisions"),
+                "network_plans": self.database.count("network_plans"),
+                "network_issues": self.database.count("network_issues"),
                 "simulation_runs": self.database.count("simulation_runs"),
             }
         boundary = self.module_boundary_document()
@@ -777,6 +846,11 @@ class JINXApplicationService:
             "recommendations": self.database.list_documents("recommendations")[-5:],
             "mission_impacts": self.database.list_documents("mission_impacts")[-5:],
             "isr_feeds": self.database.list_documents("isr_feeds")[-5:],
+            "net": {
+                "network_plans": self.database.list_documents("network_plans")[-5:],
+                "network_issues": self.database.list_documents("network_issues")[-5:],
+                "network_validation_runs": self.database.list_documents("network_validation_runs")[-5:],
+            },
             "modules": [module["name"] for module in self.module_boundary_document()["modules"]],
         }
 
@@ -904,6 +978,8 @@ class JINXApplicationService:
         impacts = self.database.list_documents("mission_impacts")
         intel = self.database.list_documents("intelligence_summaries")
         isr = self.database.list_documents("isr_feeds")
+        net_plans = self.database.list_documents("network_plans")
+        net_issues = self.database.list_documents("network_issues")
         analysis_runs = self.database.list_documents("analysis_runs")
         brain_messages = self.database.list_documents("brain_chat_messages")
         review_items = self.review_center_document()["items"]
@@ -925,6 +1001,7 @@ class JINXApplicationService:
                 self._loop_step("operator_mini", "Operator Mini intake", len(reports), reports[-1]["id"] if reports else None),
                 self._loop_step("c5isr", "C5ISR event/advisory generation", len(events) + len(advisories), events[-1]["id"] if events else None),
                 self._loop_step("intel_isr", "INTEL/ISR context", len(intel) + len(isr), isr[-1]["id"] if isr else (intel[-1]["id"] if intel else None)),
+                self._loop_step("net", "JINX-NET validation", len(net_plans) + len(net_issues), net_issues[-1]["id"] if net_issues else (net_plans[-1]["id"] if net_plans else None)),
                 self._loop_step("core", "Core analysis and conflict detection", len(analysis_runs), analysis_runs[-1]["id"] if analysis_runs else None),
                 self._loop_step("brain", "BRAIN doctrine/SOP reference", len(brain_messages), latest_brain["answer"]["id"] if latest_brain else None),
                 self._loop_step("human_review", "Human review queue", len(open_reviews), open_reviews[-1]["id"] if open_reviews else None),
@@ -1057,6 +1134,152 @@ class JINXApplicationService:
             if after.get(collection, 0) > before.get(collection, 0)
         ]
         return outputs or ["no_new_outputs"]
+
+    def _event_from_network_issue(self, issue: NetworkIssue, plan: NetworkPlan) -> Event:
+        event_type = EventType.COMMUNICATIONS_LOSS if issue.severity == "high" else EventType.COMMUNICATIONS_CHECK
+        provenance = ProvenanceRecord(
+            source=issue.id,
+            time_received=datetime.now(UTC),
+            processed_by_module="jinx-c5isr",
+            transformations=("network_issue_received", "event_normalized"),
+            confidence=issue.confidence,
+            downstream_outputs=(plan.id, issue.id),
+        )
+        return Event(
+            event_type=event_type,
+            source="jinx-net",
+            description=issue.summary,
+            confidence=issue.confidence,
+            provenance=provenance,
+            data_mode=plan.data_mode,
+            location=Location(label="network-domain"),
+            metadata={
+                "input_source": "jinx-net",
+                "network_plan_id": plan.id,
+                "network_issue_id": issue.id,
+                "issue_type": issue.issue_type,
+                "severity": issue.severity,
+                "communications_status": "unavailable" if issue.severity == "high" else "available",
+                "mission_impact_tags": "communications,network",
+            },
+            simulation_flag=plan.simulation_flag,
+        )
+
+    def _persist_network_plan(
+        self,
+        plan: NetworkPlan,
+        validation_run: NetworkValidationRun,
+        issues: tuple[NetworkIssue, ...],
+        routes: tuple[RouteResult, ...],
+        events: tuple[Event, ...],
+    ) -> None:
+        if self.database is None:
+            return
+        self.database.save_document(
+            "network_plans",
+            plan.id,
+            {
+                "id": plan.id,
+                "name": plan.name,
+                "source_format": plan.source_format,
+                "nodes": [
+                    {"id": node.id, "label": node.label, "node_type": node.node_type}
+                    for node in plan.nodes
+                ],
+                "timeslots": [
+                    {
+                        "slot_id": allocation.slot_id,
+                        "node_id": allocation.node_id,
+                        "epoch": allocation.epoch,
+                        "purpose": allocation.purpose,
+                    }
+                    for allocation in plan.timeslots
+                ],
+                "los_links": [
+                    {
+                        "from_node": link.from_node,
+                        "to_node": link.to_node,
+                        "status": link.status,
+                        "rationale": link.rationale,
+                    }
+                    for link in plan.los_links
+                ],
+                "confidence": plan.confidence.value,
+                "data_mode": plan.data_mode.value,
+                "simulation_flag": plan.simulation_flag,
+                "timestamp": plan.timestamp.isoformat(),
+            },
+        )
+        self.database.save_document(
+            "network_validation_runs",
+            validation_run.id,
+            {
+                "id": validation_run.id,
+                "plan_id": validation_run.plan_id,
+                "issue_ids": list(validation_run.issue_ids),
+                "confidence": validation_run.confidence.value,
+                "summary": validation_run.summary,
+                "timestamp": validation_run.timestamp.isoformat(),
+            },
+        )
+        delivered_by_issue = {route.message.provenance_ref: route.delivered for route in routes}
+        for issue in issues:
+            self.database.save_document(
+                "network_issues",
+                issue.id,
+                {
+                    "id": issue.id,
+                    "plan_id": plan.id,
+                    "issue_type": issue.issue_type,
+                    "summary": issue.summary,
+                    "affected_nodes": list(issue.affected_nodes),
+                    "confidence": issue.confidence.value,
+                    "recommended_review_role": issue.recommended_review_role,
+                    "severity": issue.severity,
+                    "recommended_human_actions": list(issue.recommended_human_actions),
+                    "disallowed_actions": list(issue.disallowed_actions),
+                    "delivered_to_core": delivered_by_issue.get(issue.id, False),
+                    "timestamp": issue.timestamp.isoformat(),
+                },
+            )
+            self.database.save_document(
+                "network_advisories",
+                f"net-advisory-{issue.id}",
+                {
+                    "id": f"net-advisory-{issue.id}",
+                    "issue_id": issue.id,
+                    "plan_id": plan.id,
+                    "summary": f"JINX-NET advisory: {issue.summary}",
+                    "required_human_review": True,
+                    "recommended_review_role": issue.recommended_review_role,
+                    "allowed_actions": list(issue.recommended_human_actions),
+                    "disallowed_actions": list(issue.disallowed_actions),
+                    "confidence": issue.confidence.value,
+                },
+            )
+            self._persist_provenance_chain("network_issue", issue.id, (issue.provenance,))
+        for event in events:
+            self.database.save_document(
+                "events",
+                event.id,
+                {
+                    "id": event.id,
+                    "event_type": event.event_type.value,
+                    "source": event.source,
+                    "description": event.description,
+                    "location": event.location.label if event.location else None,
+                    "confidence": event.confidence.value,
+                    "network_plan_id": event.metadata.get("network_plan_id"),
+                    "network_issue_id": event.metadata.get("network_issue_id"),
+                    "mission_impact_tags": event.metadata.get("mission_impact_tags", ""),
+                    "timestamp": event.timestamp.isoformat(),
+                },
+            )
+            self._append_timeline(
+                "network_issue",
+                event.description,
+                {"event_id": event.id, "network_plan_id": plan.id},
+            )
 
     @staticmethod
     def layer_config_document() -> dict[str, object]:

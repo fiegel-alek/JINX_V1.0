@@ -30,7 +30,23 @@ ROLE_PERMISSIONS = {
             "isr:read",
             "isr:write",
             "mission:write",
+            "net:read",
+            "net:submit",
+            "net:review",
             "sim:inject",
+            "sim:run",
+        }
+    ),
+    "network_manager": frozenset(
+        {
+            "audit:read",
+            "brain:chat",
+            "brain:query",
+            "cop:read",
+            "net:read",
+            "net:submit",
+            "net:review",
+            "ops:read",
             "sim:run",
         }
     ),
@@ -197,6 +213,22 @@ class JINXRequestHandler(SimpleHTTPRequestHandler):
                 self._require_permission("isr:read")
                 self._send_json({"isr_feeds": self.server.database.list_documents("isr_feeds")})
                 return
+            if parsed.path == "/api/net/plans":
+                self._require_permission("net:read")
+                self._send_json(self.server.api_handlers.service.network_plans_document())
+                return
+            if parsed.path == "/api/net/issues":
+                self._require_permission("net:read")
+                self._send_json(self.server.api_handlers.service.network_issues_document())
+                return
+            if parsed.path == "/api/net/validation-runs":
+                self._require_permission("net:read")
+                self._send_json(self.server.api_handlers.service.network_validation_runs_document())
+                return
+            if parsed.path == "/api/net/advisories":
+                self._require_permission("net:read")
+                self._send_json(self.server.api_handlers.service.network_advisories_document())
+                return
             if parsed.path == "/api/human-commands":
                 self._require_permission("cop:read")
                 self._send_json({"human_commands": self.server.database.list_documents("human_commands")})
@@ -275,6 +307,10 @@ class JINXRequestHandler(SimpleHTTPRequestHandler):
             if parsed.path == "/api/isr-feeds":
                 self._require_permission("isr:write")
                 self._send_json(self.server.api_handlers.submit_isr_feed_snapshot(payload), status=201)
+                return
+            if parsed.path == "/api/net/plans":
+                self._require_permission("net:submit")
+                self._send_json(self.server.api_handlers.submit_network_plan(payload), status=201)
                 return
             if parsed.path == "/api/brain/query":
                 self._require_permission("brain:query")

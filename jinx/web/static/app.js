@@ -33,12 +33,17 @@ const els = {
   provenanceList: document.querySelector("#provenance-list"),
   boundaryList: document.querySelector("#boundary-list"),
   isrFeedList: document.querySelector("#isr-feed-list"),
+  netPlanList: document.querySelector("#net-plan-list"),
+  netIssueList: document.querySelector("#net-issue-list"),
+  netValidationList: document.querySelector("#net-validation-list"),
+  netAdvisoryList: document.querySelector("#net-advisory-list"),
   moduleList: document.querySelector("#module-list"),
   activityList: document.querySelector("#activity-list"),
   reportForm: document.querySelector("#report-form"),
   commandForm: document.querySelector("#command-form"),
   intelForm: document.querySelector("#intel-form"),
   isrFeedForm: document.querySelector("#isr-feed-form"),
+  netPlanForm: document.querySelector("#net-plan-form"),
   brainQueryForm: document.querySelector("#brain-query-form"),
   brainChatForm: document.querySelector("#brain-chat-form"),
   refreshButton: document.querySelector("#refresh-button"),
@@ -429,6 +434,51 @@ function renderISRFeeds(feeds) {
   `);
 }
 
+function renderNetworkPlans(plans) {
+  document.querySelector("#net-plan-count").textContent = plans.length;
+  renderList(els.netPlanList, plans.slice(-6).reverse(), "No NET plans", (plan) => `
+    <article class="item net">
+      <strong>${escapeHTML(plan.name)} · ${escapeHTML(plan.source_format)}</strong>
+      <span>nodes ${escapeHTML((plan.nodes || []).length)} · timeslots ${escapeHTML((plan.timeslots || []).length)} · LOS ${escapeHTML((plan.los_links || []).length)}</span>
+      <span>${escapeHTML(plan.data_mode)} · confidence ${escapeHTML(plan.confidence)}</span>
+    </article>
+  `);
+}
+
+function renderNetworkIssues(issues) {
+  document.querySelector("#net-issue-count").textContent = issues.length;
+  renderList(els.netIssueList, issues.slice(-8).reverse(), "No NET issues", (issue) => `
+    <article class="item net conflict">
+      <strong>${escapeHTML(issue.issue_type)} · ${escapeHTML(issue.severity)}</strong>
+      <span>${escapeHTML(issue.summary)}</span>
+      <span>nodes: ${escapeHTML((issue.affected_nodes || []).join(", ") || "none")} · delivered ${escapeHTML(issue.delivered_to_core)}</span>
+      <span>review: ${escapeHTML(issue.recommended_review_role)}</span>
+    </article>
+  `);
+}
+
+function renderNetworkValidationRuns(runs) {
+  document.querySelector("#net-validation-count").textContent = runs.length;
+  renderList(els.netValidationList, runs.slice(-6).reverse(), "No NET validation runs", (run) => `
+    <article class="item net">
+      <strong>${escapeHTML(run.id)}</strong>
+      <span>${escapeHTML(run.summary)}</span>
+      <span>plan ${escapeHTML(run.plan_id)} · issues ${escapeHTML((run.issue_ids || []).length)} · confidence ${escapeHTML(run.confidence)}</span>
+    </article>
+  `);
+}
+
+function renderNetworkAdvisories(advisories) {
+  document.querySelector("#net-advisory-count").textContent = advisories.length;
+  renderList(els.netAdvisoryList, advisories.slice(-8).reverse(), "No NET advisories", (advisory) => `
+    <article class="item net recommendation">
+      <strong>${escapeHTML(advisory.recommended_review_role)} · confidence ${escapeHTML(advisory.confidence)}</strong>
+      <span>${escapeHTML(advisory.summary)}</span>
+      <span>${advisory.required_human_review ? "human review required" : "review missing"} · issue ${escapeHTML(advisory.issue_id)}</span>
+    </article>
+  `);
+}
+
 function renderTimeline(timeline) {
   renderList(els.timelineList, timeline.slice(-10).reverse(), "No timeline entries", (entry) => `
     <article class="item timeline">
@@ -580,6 +630,10 @@ async function refreshDashboard() {
       provenance,
       boundaries,
       isrFeeds,
+      netPlans,
+      netIssues,
+      netValidationRuns,
+      netAdvisories,
       timeline,
       scenarios,
       simRuns,
@@ -612,6 +666,10 @@ async function refreshDashboard() {
       getJSON("/api/core/provenance"),
       getJSON("/api/core/module-boundaries"),
       getOptionalJSON("/api/isr-feeds", { isr_feeds: [] }),
+      getOptionalJSON("/api/net/plans", { network_plans: [] }),
+      getOptionalJSON("/api/net/issues", { network_issues: [] }),
+      getOptionalJSON("/api/net/validation-runs", { network_validation_runs: [] }),
+      getOptionalJSON("/api/net/advisories", { network_advisories: [] }),
       getJSON("/api/timeline"),
       getJSON("/api/sim/c5isr-scenarios"),
       getJSON("/api/sim/runs"),
@@ -644,6 +702,10 @@ async function refreshDashboard() {
     renderProvenance(provenance.provenance || []);
     renderBoundaries(boundaries);
     renderISRFeeds(isrFeeds.isr_feeds || []);
+    renderNetworkPlans(netPlans.network_plans || []);
+    renderNetworkIssues(netIssues.network_issues || []);
+    renderNetworkValidationRuns(netValidationRuns.network_validation_runs || []);
+    renderNetworkAdvisories(netAdvisories.network_advisories || []);
     renderTimeline(timeline.timeline || []);
     renderScenarioPacks(scenarios.scenario_packs || []);
     renderSimulationRuns(simRuns.simulation_runs || []);
@@ -695,6 +757,18 @@ els.isrFeedForm.addEventListener("submit", async (event) => {
   try {
     const response = await postJSON("/api/isr-feeds", data);
     addActivity(`ISR feed ${response.feed_id} delivered to BUS: ${response.delivered_to_bus}.`);
+    await refreshDashboard();
+  } catch (error) {
+    addActivity(error.message);
+  }
+});
+
+els.netPlanForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const data = Object.fromEntries(new FormData(els.netPlanForm).entries());
+  try {
+    const response = await postJSON("/api/net/plans", data);
+    addActivity(`NET plan ${response.plan_id} produced ${response.issues} issue(s).`);
     await refreshDashboard();
   } catch (error) {
     addActivity(error.message);

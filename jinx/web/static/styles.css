@@ -210,7 +210,7 @@ h2 {
 }
 
 .operations {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
 }
 
 .data-grid {
@@ -318,6 +318,7 @@ h2 {
 .item.recommendation,
 .item.isr,
 .item.mission-impact,
+.item.net,
 .item.operator-loop,
 .item.ops,
 .item.review-item,

@@ -40,6 +40,7 @@
               Active role
               <select id="role-select">
                 <option value="c5isr_manager" selected>C5ISR manager</option>
+                <option value="network_manager">Network manager</option>
                 <option value="operator">Operator</option>
                 <option value="commander">Commander</option>
                 <option value="auditor">Auditor</option>
@@ -282,6 +283,65 @@
               <button type="submit">Publish ISR Feed Snapshot</button>
             </form>
           </section>
+
+          <section class="panel">
+            <div class="section-head">
+              <h2>JINX-NET Plan</h2>
+              <span>Synthetic MTDL</span>
+            </div>
+            <form id="net-plan-form" class="form compact-form">
+              <div class="form-grid">
+                <label>
+                  Plan
+                  <input name="name" value="Synthetic Link Plan Alpha" required />
+                </label>
+                <label>
+                  Nodes
+                  <input name="node_ids" value="node-alpha,node-bravo,node-charlie" required />
+                </label>
+                <label>
+                  Timeslots
+                  <input name="timeslots" value="slot-01:node-alpha,slot-01:node-bravo,slot-02:node-charlie" required />
+                </label>
+                <label>
+                  LOS Status
+                  <select name="los_status">
+                    <option value="degraded">Degraded</option>
+                    <option value="blocked">Blocked</option>
+                    <option value="clear">Clear</option>
+                    <option value="unknown">Unknown</option>
+                  </select>
+                </label>
+              </div>
+              <input type="hidden" name="los_links" value="node-alpha>node-bravo,node-bravo>node-charlie" />
+              <input type="hidden" name="los_rationale" value="Synthetic terrain and relay assumptions require network-manager review." />
+              <button type="submit">Validate NET Plan</button>
+            </form>
+          </section>
+        </section>
+
+        <section class="data-grid">
+          <section class="panel">
+            <div class="section-head">
+              <h2>NET Plans</h2>
+              <span id="net-plan-count">0</span>
+            </div>
+            <div id="net-plan-list" class="list empty">No NET plans</div>
+          </section>
+          <section class="panel">
+            <div class="section-head">
+              <h2>NET Issues</h2>
+              <span id="net-issue-count">0</span>
+            </div>
+            <div id="net-issue-list" class="list empty">No NET issues</div>
+          </section>
+          <section class="panel">
+            <div class="section-head">
+              <h2>NET Validation Runs</h2>
+              <span id="net-validation-count">0</span>
+            </div>
+            <div id="net-validation-list" class="list empty">No NET validation runs</div>
+          </section>
         </section>
 
         <section class="data-grid">
@@ -360,6 +420,13 @@
               <span id="isr-feed-count">0</span>
             </div>
             <div id="isr-feed-list" class="list empty">No ISR feeds</div>
+          </section>
+          <section class="panel">
+            <div class="section-head">
+              <h2>NET Advisories</h2>
+              <span id="net-advisory-count">0</span>
+            </div>
+            <div id="net-advisory-list" class="list empty">No NET advisories</div>
           </section>
         </section>
 

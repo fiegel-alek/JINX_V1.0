@@ -191,6 +191,10 @@ class WebDatabaseFrontendTests(TestCase):
         self.assertIn("/api/operator-reports/review", (static_root / "app.js").read_text(encoding="utf-8"))
         self.assertIn("/api/intelligence-summaries", (static_root / "app.js").read_text(encoding="utf-8"))
         self.assertIn("/api/isr-feeds", (static_root / "app.js").read_text(encoding="utf-8"))
+        self.assertIn("/api/net/plans", (static_root / "app.js").read_text(encoding="utf-8"))
+        self.assertIn("/api/net/issues", (static_root / "app.js").read_text(encoding="utf-8"))
+        self.assertIn("/api/net/validation-runs", (static_root / "app.js").read_text(encoding="utf-8"))
+        self.assertIn("/api/net/advisories", (static_root / "app.js").read_text(encoding="utf-8"))
         self.assertIn("/api/mission-context", (static_root / "app.js").read_text(encoding="utf-8"))
         self.assertIn("/api/review-center", (static_root / "app.js").read_text(encoding="utf-8"))
         self.assertIn("/api/mission-impacts", (static_root / "app.js").read_text(encoding="utf-8"))
@@ -228,6 +232,11 @@ class WebDatabaseFrontendTests(TestCase):
         self.assertIn("Brain References", (static_root / "index.html").read_text(encoding="utf-8"))
         self.assertIn("Core Conflict Packets", (static_root / "index.html").read_text(encoding="utf-8"))
         self.assertIn("ISR Feed Display", (static_root / "index.html").read_text(encoding="utf-8"))
+        self.assertIn("JINX-NET Plan", (static_root / "index.html").read_text(encoding="utf-8"))
+        self.assertIn("NET Plans", (static_root / "index.html").read_text(encoding="utf-8"))
+        self.assertIn("NET Issues", (static_root / "index.html").read_text(encoding="utf-8"))
+        self.assertIn("NET Validation Runs", (static_root / "index.html").read_text(encoding="utf-8"))
+        self.assertIn("NET Advisories", (static_root / "index.html").read_text(encoding="utf-8"))
         self.assertIn(".map-grid", (static_root / "styles.css").read_text(encoding="utf-8"))
         self.assertIn(".module-grid", (static_root / "styles.css").read_text(encoding="utf-8"))
         self.assertIn(".review-row", (static_root / "styles.css").read_text(encoding="utf-8"))
@@ -245,6 +254,12 @@ class WebDatabaseFrontendTests(TestCase):
         handler._require_permission("sim:inject")
         handler._require_permission("sim:run")
         handler._require_permission("ops:read")
+        handler._require_permission("net:submit")
+
+        handler.headers = {"X-JINX-Role": "network_manager"}
+        handler._require_permission("net:read")
+        handler._require_permission("net:submit")
+        handler._require_permission("net:review")
 
     def test_api_handler_demo_data_is_available_through_database_shape(self) -> None:
         with TemporaryDirectory() as tmp:

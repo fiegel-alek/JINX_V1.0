@@ -22,9 +22,11 @@ class BrainKnowledgeTests(TestCase):
 
         result = repository.search("communications", tags=frozenset({"review"}))
 
-        self.assertEqual(len(result.matches), 1)
-        self.assertEqual(result.matches[0].scope, DoctrineScope.SOP)
-        self.assertIn("Does not authorize operational action.", result.matches[0].restrictions)
+        self.assertGreaterEqual(len(result.matches), 1)
+        self.assertIn(DoctrineScope.SOP, {record.scope for record in result.matches})
+        self.assertTrue(
+            any("Does not authorize operational action." in record.restrictions for record in result.matches)
+        )
 
     def test_repository_rejects_empty_search(self) -> None:
         with self.assertRaises(ValueError):

@@ -43,6 +43,9 @@ def build_default_access_control() -> AccessControl:
                     "isr:read",
                     "isr:write",
                     "mission:write",
+                    "net:read",
+                    "net:submit",
+                    "net:review",
                     "sim:inject",
                     "sim:run",
                 }
@@ -56,7 +59,19 @@ def build_default_access_control() -> AccessControl:
         ),
         Role(
             name="network_manager",
-            permissions=frozenset({"network:review", "advisory:review"}),
+            permissions=frozenset(
+                {
+                    "advisory:review",
+                    "brain:chat",
+                    "brain:query",
+                    "cop:read",
+                    "net:read",
+                    "net:submit",
+                    "net:review",
+                    "ops:read",
+                    "sim:run",
+                }
+            ),
             description="Reviews network-domain issues.",
         ),
         Role(
