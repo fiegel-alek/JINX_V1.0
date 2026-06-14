@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>JINX-Operator Mini</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="operator-shell">
+      <header class="operator-topbar">
+        <div class="operator-title">
+          <span class="operator-mark">JM</span>
+          <div>
+            <strong>JINX-Operator Mini</strong>
+            <small class="operator-muted">Local COP / advisory only</small>
+          </div>
+        </div>
+        <span class="operator-chip">
+          <span id="api-status" class="status-dot"></span>
+          <span id="api-status-text">Checking link</span>
+        </span>
+      </header>
+
+      <section class="operator-card">
+        <div class="operator-header-row">
+          <div>
+            <p class="eyebrow">Operator package</p>
+            <h1>Field View</h1>
+          </div>
+          <div class="operator-inline-actions">
+            <button id="refresh-button" type="button">Refresh</button>
+          </div>
+        </div>
+        <div class="operator-form-grid">
+          <label>
+            Operator
+            <input id="reporter-id" value="operator-alpha" />
+          </label>
+          <label>
+            Device
+            <input id="device-id" value="operator-mini-001" />
+          </label>
+          <label>
+            Role
+            <select id="role-select">
+              <option value="operator" selected>Operator</option>
+              <option value="system_administrator">System administrator</option>
+            </select>
+          </label>
+          <label>
+            Sync state
+            <input id="sync-state" value="Live" readonly />
+          </label>
+        </div>
+        <div class="operator-chip-row" aria-label="operator status chips">
+          <span class="operator-chip">Queue <strong id="queue-count">0</strong></span>
+          <span class="operator-chip">Advisories <strong id="advisory-count">0</strong></span>
+          <span class="operator-chip">Reports <strong id="report-count">0</strong></span>
+        </div>
+      </section>
+
+      <section class="operator-map-card">
+        <div class="section-head">
+          <h2>Local COP</h2>
+          <span id="focus-label">Local operator area</span>
+        </div>
+        <div id="operator-map" class="operator-map" aria-label="local operator map">
+          <div class="operator-map-crosshair"></div>
+        </div>
+        <div id="selection-card" class="operator-selection list empty">Select a map point to prep a report.</div>
+      </section>
+
+      <details id="action-drawer" class="operator-drawer">
+        <summary>Report / Action Menu</summary>
+        <div class="operator-drawer-body">
+          <div class="section-head">
+            <h2>Quick Actions</h2>
+            <span id="selected-action-label">Position</span>
+          </div>
+          <div id="action-grid" class="operator-actions"></div>
+          <form id="report-form" class="form">
+            <input type="hidden" name="report_type" value="position_update" />
+            <label>
+              Location
+              <input name="location" value="Local operator area" required />
+            </label>
+            <label>
+              Summary
+              <textarea name="summary" required>Position update from operator-alpha near Local operator area.</textarea>
+            </label>
+            <div class="operator-inline-actions">
+              <button type="submit">Send Report</button>
+              <button id="sync-queue-button" type="button">Sync Queued</button>
+            </div>
+          </form>
+          <div id="receipt-card" class="list empty">No submission receipt yet</div>
+        </div>
+      </details>
+
+      <button id="drawer-toggle" class="operator-primary" type="button">Open Action Menu</button>
+
+      <section class="operator-stack">
+        <section class="operator-card">
+          <div class="section-head">
+            <h2>Advisory Inbox</h2>
+            <span id="workspace-status">ready</span>
+          </div>
+          <div id="advisory-list" class="list empty">No advisories</div>
+        </section>
+
+        <section class="operator-card">
+          <div class="section-head">
+            <h2>Recent Reports</h2>
+            <span id="mission-label">No mission context</span>
+          </div>
+          <div id="report-list" class="list empty">No reports yet</div>
+        </section>
+
+        <section class="operator-card">
+          <div class="section-head">
+            <h2>Ask JINX-BRAIN</h2>
+            <span id="brain-count">0</span>
+          </div>
+          <form id="brain-chat-form" class="form">
+            <label>
+              Question
+              <textarea name="text" required>What should I human-review first before updating local movement assumptions?</textarea>
+            </label>
+            <input type="hidden" name="use_core_reachback" value="true" />
+            <button type="submit">Ask BRAIN</button>
+          </form>
+          <div id="brain-list" class="list empty">No operator BRAIN thread yet</div>
+        </section>
+      </section>
+    </main>
+    <script src="/operator_app.js"></script>
+  </body>
+</html>

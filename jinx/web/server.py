@@ -14,7 +14,7 @@ from jinx.core.persistence import SQLiteJINXDatabase
 from jinx.modules.sim import default_c5isr_scenario_packs
 
 ROLE_PERMISSIONS = {
-    "operator": frozenset({"brain:chat", "operator_report:submit", "cop:read", "ops:read"}),
+    "operator": frozenset({"brain:chat", "operator:read", "operator_report:submit", "cop:read", "ops:read"}),
     "commander": frozenset({"human_command:submit", "cop:read", "operator_report:review", "isr:read", "ops:read"}),
     "c5isr_manager": frozenset(
         {
@@ -62,7 +62,7 @@ PACKAGE_PROFILES = {
     "full": {
         "label": "Full JINX Package",
         "modules": ("core", "brain", "c5isr", "net", "intel", "sim", "bus"),
-        "apps": ("/apps/ops", "/apps/c5isr", "/apps/net", "/apps/intel", "/apps/sim"),
+        "apps": ("/apps/ops", "/apps/c5isr", "/apps/net", "/apps/intel", "/apps/sim", "/apps/operator"),
     },
     "c5isr": {
         "label": "JINX-C5ISR Package",
@@ -84,6 +84,11 @@ PACKAGE_PROFILES = {
         "modules": ("core", "brain", "sim", "bus"),
         "apps": ("/apps/sim",),
     },
+    "operator": {
+        "label": "JINX-Operator Mini Package",
+        "modules": ("core", "brain", "c5isr", "bus"),
+        "apps": ("/apps/operator",),
+    },
 }
 
 PACKAGE_PERMISSION_PREFIXES = {
@@ -92,6 +97,7 @@ PACKAGE_PERMISSION_PREFIXES = {
     "net": ("operator_report:", "cop:", "mission:", "intel:", "isr:", "human_command:", "ops:"),
     "intel": ("operator_report:", "cop:", "mission:", "net:", "human_command:", "ops:"),
     "sim": ("operator_report:", "cop:", "mission:", "intel:", "isr:", "net:", "human_command:", "ops:"),
+    "operator": ("cop:", "mission:", "intel:", "isr:", "net:", "ops:", "audit:", "human_command:", "operator_report:review", "sim:"),
 }
 
 NET_REDACTIONS = {
@@ -174,6 +180,19 @@ class JINXRequestHandler(SimpleHTTPRequestHandler):
             if parsed.path == "/api/operator-reports":
                 self._require_permission("cop:read")
                 self._send_json({"operator_reports": self.server.database.list_documents("operator_reports")})
+                return
+            if parsed.path == "/api/operator/workspace":
+                self._require_permission("operator:read")
+                self._send_json(
+                    self.server.api_handlers.operator_workspace(
+                        reporter_id=self._reporter_id(),
+                        device_id=self._device_id(),
+                    )
+                )
+                return
+            if parsed.path == "/api/operator/brain-thread":
+                self._require_permission("brain:chat")
+                self._send_json(self.server.api_handlers.operator_brain_thread(self._reporter_id()))
                 return
             if parsed.path == "/api/events":
                 self._require_permission("cop:read")
@@ -378,6 +397,12 @@ class JINXRequestHandler(SimpleHTTPRequestHandler):
                 self._require_permission("operator_report:submit")
                 self._send_json(self.server.api_handlers.submit_operator_report(payload), status=201)
                 return
+            if parsed.path == "/api/operator/report":
+                self._require_permission("operator_report:submit")
+                payload.setdefault("reporter_id", self._reporter_id())
+                payload.setdefault("device_id", self._device_id())
+                self._send_json(self.server.api_handlers.submit_operator_report(payload), status=201)
+                return
             if parsed.path == "/api/human-commands":
                 self._require_permission("human_command:submit")
                 self._send_json(self.server.api_handlers.submit_human_command(payload), status=201)
@@ -477,6 +502,12 @@ class JINXRequestHandler(SimpleHTTPRequestHandler):
         package = self.headers.get("X-JINX-Package", "full")
         return package if package in PACKAGE_PROFILES else "full"
 
+    def _reporter_id(self) -> str:
+        return self.headers.get("X-JINX-Reporter", "operator-alpha")
+
+    def _device_id(self) -> str:
+        return self.headers.get("X-JINX-Device", "operator-mini-001")
+
     def _require_permission(self, permission: str) -> None:
         role = self._role()
         permissions = ROLE_PERMISSIONS.get(role, frozenset())
@@ -513,6 +544,8 @@ class JINXRequestHandler(SimpleHTTPRequestHandler):
             "/intel": "/intel.html",
             "/apps/sim": "/sim.html",
             "/sim": "/sim.html",
+            "/apps/operator": "/operator.html",
+            "/operator": "/operator.html",
         }
         return mapping.get(path)
 

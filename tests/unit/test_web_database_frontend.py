@@ -202,6 +202,47 @@ class WebDatabaseFrontendTests(TestCase):
                 scenario_id,
             )
 
+    def test_operator_workspace_supports_local_cop_and_advisory_inbox(self) -> None:
+        with TemporaryDirectory() as tmp:
+            database = SQLiteJINXDatabase(Path(tmp) / "jinx.sqlite3")
+            handlers = JINXAPIHandlers(JINXApplicationService(database=database))
+
+            handlers.submit_mission_context(
+                {
+                    "mission_statement": "Synthetic operator mission monitors Route Alpha.",
+                    "route": "Route Alpha",
+                    "named_area": "Area Alpha",
+                }
+            )
+            report = handlers.submit_operator_report(
+                {
+                    "reporter_id": "operator-alpha",
+                    "device_id": "operator-mini-001",
+                    "report_type": "hazard",
+                    "summary": "Synthetic hazard observed near Route Alpha.",
+                    "location": "Route Alpha",
+                }
+            )
+            workspace = handlers.operator_workspace("operator-alpha", "operator-mini-001")["operator_workspace"]
+            handlers.ask_brain_chat(
+                {
+                    "text": "What should I human-review before updating local route assumptions?",
+                    "user_id": "operator-alpha",
+                    "role": "operator",
+                    "use_core_reachback": "true",
+                }
+            )
+            brain_thread = handlers.operator_brain_thread("operator-alpha")
+
+            self.assertEqual(workspace["reporter_id"], "operator-alpha")
+            self.assertEqual(workspace["status"], "advisories_waiting")
+            self.assertTrue(workspace["local_cop"]["markers"])
+            self.assertEqual(workspace["advisory_inbox"][-1]["id"], report["advisory_id"])
+            self.assertTrue(workspace["quick_actions"])
+            self.assertEqual(database.count("operator_reports"), 1)
+            self.assertEqual(database.count("cop_advisories"), 1)
+            self.assertEqual(len(brain_thread["messages"]), 1)
+
     def test_api_handler_validates_cop_track(self) -> None:
         with TemporaryDirectory() as tmp:
             database = SQLiteJINXDatabase(Path(tmp) / "jinx.sqlite3")
@@ -306,6 +347,10 @@ class WebDatabaseFrontendTests(TestCase):
         self.assertIn("/api/intel/correlations", (static_root / "intel_app.js").read_text(encoding="utf-8"))
         self.assertIn("/api/intel/module-notices", (static_root / "intel_app.js").read_text(encoding="utf-8"))
         self.assertIn("/api/intel/isr-feeds", (static_root / "intel_app.js").read_text(encoding="utf-8"))
+        self.assertIn("JINX-Operator Mini", (static_root / "operator.html").read_text(encoding="utf-8"))
+        self.assertIn("/api/operator/workspace", (static_root / "operator_app.js").read_text(encoding="utf-8"))
+        self.assertIn("/api/operator/report", (static_root / "operator_app.js").read_text(encoding="utf-8"))
+        self.assertIn("/api/operator/brain-thread", (static_root / "operator_app.js").read_text(encoding="utf-8"))
 
     def test_package_specific_frontend_surfaces_are_separated(self) -> None:
         static_root = Path("jinx/web/static")
@@ -317,6 +362,8 @@ class WebDatabaseFrontendTests(TestCase):
         intel_js = (static_root / "intel_app.js").read_text(encoding="utf-8")
         sim_html = (static_root / "sim.html").read_text(encoding="utf-8")
         sim_js = (static_root / "sim_app.js").read_text(encoding="utf-8")
+        operator_html = (static_root / "operator.html").read_text(encoding="utf-8")
+        operator_js = (static_root / "operator_app.js").read_text(encoding="utf-8")
 
         self.assertIn("Common Operational Picture", c5isr_html)
         self.assertIn("/api/cop", c5isr_js)
@@ -360,10 +407,23 @@ class WebDatabaseFrontendTests(TestCase):
         self.assertNotIn("Network Manager", sim_html + sim_js)
         self.assertNotIn("Fusion Desk", sim_html + sim_js)
 
+        self.assertIn("JINX-Operator Mini", operator_html)
+        self.assertIn("/api/operator/workspace", operator_js)
+        self.assertIn("/api/operator/report", operator_js)
+        self.assertIn("/api/operator/brain-thread", operator_js)
+        self.assertNotIn("/api/cop", operator_js)
+        self.assertNotIn("/api/net", operator_js)
+        self.assertNotIn("/api/intel", operator_js)
+        self.assertNotIn("/api/mission-context", operator_js)
+        self.assertNotIn("Common Operational Picture", operator_html + operator_js)
+        self.assertNotIn("Network Manager", operator_html + operator_js)
+        self.assertNotIn("Fusion Desk", operator_html + operator_js)
+
     def test_web_request_handler_enforces_role_permissions(self) -> None:
         handler = JINXRequestHandler.__new__(JINXRequestHandler)
         handler.headers = {"X-JINX-Role": "operator"}
 
+        handler._require_permission("operator:read")
         handler._require_permission("operator_report:submit")
         with self.assertRaises(PermissionError):
             handler._require_permission("operator_report:review")
@@ -423,6 +483,17 @@ class WebDatabaseFrontendTests(TestCase):
         with self.assertRaises(PermissionError):
             handler._require_permission("isr:read")
 
+        handler.headers = {"X-JINX-Role": "operator", "X-JINX-Package": "operator"}
+        handler._require_permission("operator:read")
+        handler._require_permission("operator_report:submit")
+        handler._require_permission("brain:chat")
+        with self.assertRaises(PermissionError):
+            handler._require_permission("cop:read")
+        with self.assertRaises(PermissionError):
+            handler._require_permission("net:read")
+        with self.assertRaises(PermissionError):
+            handler._require_permission("isr:read")
+
     def test_web_request_handler_maps_package_app_routes(self) -> None:
         self.assertEqual(JINXRequestHandler._app_path("/apps/ops"), "/index.html")
         self.assertEqual(JINXRequestHandler._app_path("/ops"), "/index.html")
@@ -434,6 +505,8 @@ class WebDatabaseFrontendTests(TestCase):
         self.assertEqual(JINXRequestHandler._app_path("/intel"), "/intel.html")
         self.assertEqual(JINXRequestHandler._app_path("/apps/sim"), "/sim.html")
         self.assertEqual(JINXRequestHandler._app_path("/sim"), "/sim.html")
+        self.assertEqual(JINXRequestHandler._app_path("/apps/operator"), "/operator.html")
+        self.assertEqual(JINXRequestHandler._app_path("/operator"), "/operator.html")
         self.assertIsNone(JINXRequestHandler._app_path("/unknown"))
 
     def test_c5isr_package_redacts_net_specific_payload_details(self) -> None:

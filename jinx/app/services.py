@@ -836,6 +836,161 @@ class JINXApplicationService:
             packet = self._refresh_operator_loop("bootstrap", {})
         return {"operator_loop": packet}
 
+    def operator_workspace_document(
+        self,
+        reporter_id: str,
+        device_id: str = "",
+    ) -> dict[str, object]:
+        mission = {
+            "id": None,
+            "mission_statement": "No local mission context loaded.",
+            "routes": [],
+            "named_areas": [],
+            "timeline": [],
+        }
+        if self.database is not None:
+            try:
+                mission = self.database.get_document("mission_contexts", "active")
+            except KeyError:
+                pass
+        cop = self.cop_state_document()
+        reports = self.database.list_documents("operator_reports") if self.database else []
+        advisories = self.database.list_documents("cop_advisories") if self.database else []
+        own_reports = [report for report in reports if report.get("reporter_id") == reporter_id]
+        own_report_ids = {str(report["id"]) for report in own_reports}
+        own_track = next(
+            (
+                track
+                for track in cop.get("tracks", [])
+                if track.get("entity_id") == reporter_id or track.get("label") == reporter_id
+            ),
+            None,
+        )
+        focus_label = (
+            (own_track or {}).get("location")
+            or (own_reports[-1] if own_reports else {}).get("location")
+            or next(iter(mission.get("routes", [])), None)
+            or next(iter(mission.get("named_areas", [])), None)
+            or "Local operator area"
+        )
+        local_tracks = [
+            track
+            for track in cop.get("tracks", [])
+            if track.get("entity_id") == reporter_id
+            or track.get("label") == reporter_id
+            or track.get("location") == focus_label
+        ]
+        local_reports = [
+            report
+            for report in reports
+            if report.get("reporter_id") == reporter_id or report.get("location") == focus_label
+        ]
+        advisory_inbox = [
+            advisory
+            for advisory in advisories
+            if advisory.get("recipient_id") == reporter_id
+            or own_report_ids.intersection(str(item) for item in advisory.get("related_report_ids", []))
+        ][-8:]
+
+        markers: list[dict[str, object]] = []
+        for track in local_tracks[:4]:
+            markers.append(
+                self._operator_map_marker(
+                    marker_id=str(track.get("entity_id", track.get("label", "track"))),
+                    label=str(track.get("label", "Track")),
+                    kind="track",
+                    status=str(track.get("lifecycle", track.get("status", "active"))),
+                    confidence=float(track.get("confidence", 0.0)),
+                    summary=str(track.get("location", focus_label)),
+                    related_id=str(track.get("entity_id", "")),
+                )
+            )
+        for report in local_reports[-4:]:
+            markers.append(
+                self._operator_map_marker(
+                    marker_id=str(report.get("id", "report")),
+                    label=str(report.get("report_type", "report")).replace("_", " "),
+                    kind="report",
+                    status=str(report.get("review_state", "new")),
+                    confidence=float(report.get("confidence", 0.0)),
+                    summary=str(report.get("summary", "")),
+                    related_id=str(report.get("id", "")),
+                )
+            )
+        for advisory in advisory_inbox[-3:]:
+            markers.append(
+                self._operator_map_marker(
+                    marker_id=str(advisory.get("id", "advisory")),
+                    label="Advisory",
+                    kind="advisory",
+                    status="human_review_required",
+                    confidence=float(advisory.get("confidence", 0.0)),
+                    summary=str(advisory.get("summary", "")),
+                    related_id=str(advisory.get("id", "")),
+                )
+            )
+        if not markers:
+            markers.append(
+                self._operator_map_marker(
+                    marker_id=f"focus-{reporter_id or 'operator'}",
+                    label=str(focus_label),
+                    kind="focus",
+                    status="monitoring",
+                    confidence=0.0,
+                    summary="No local tracks or advisories yet. Synthetic monitoring is ready.",
+                    related_id="",
+                )
+            )
+
+        status = "ready"
+        if advisory_inbox:
+            status = "advisories_waiting"
+        elif own_reports:
+            status = "monitoring"
+
+        return {
+            "operator_workspace": {
+                "reporter_id": reporter_id,
+                "device_id": device_id or "operator-mini-device",
+                "status": status,
+                "sync_mode": "synthetic_shadow_mode",
+                "local_cop": {
+                    "name": "Local Operator COP",
+                    "focus_label": focus_label,
+                    "tracks": local_tracks[:4],
+                    "markers": markers,
+                    "track_count": len(local_tracks),
+                    "report_count": len(own_reports),
+                    "advisory_count": len(advisory_inbox),
+                },
+                "mission": {
+                    "id": mission.get("id"),
+                    "mission_statement": mission.get("mission_statement", "No local mission context loaded."),
+                    "routes": list(mission.get("routes", [])),
+                    "named_areas": list(mission.get("named_areas", [])),
+                    "timeline": list(mission.get("timeline", [])),
+                },
+                "recent_reports": own_reports[-6:],
+                "advisory_inbox": advisory_inbox,
+                "quick_actions": self._operator_quick_actions(),
+                "guardrails": [
+                    "JINX-Operator Mini is an advisory reporting surface only.",
+                    "Only human operators create or acknowledge field reports.",
+                    "Do not treat JINX responses as commands, orders, or targeting decisions.",
+                ],
+            }
+        }
+
+    def operator_brain_thread_document(self, reporter_id: str) -> dict[str, object]:
+        messages = self.database.list_documents("brain_chat_messages") if self.database else []
+        filtered = [
+            message
+            for message in messages
+            if message.get("question", {}).get("user_id") == reporter_id
+            or message.get("question", {}).get("role") == "operator"
+        ]
+        return {"messages": filtered[-8:]}
+
     def simulation_dashboard_document(self) -> dict[str, object]:
         library = self.simulation_library_document()["simulation_scenarios"]
         runs = self.simulation_runs_document()["simulation_runs"]
@@ -1751,8 +1906,93 @@ class JINXApplicationService:
             ]
         }
 
+    @staticmethod
+    def _operator_quick_actions() -> list[dict[str, str]]:
+        return [
+            {
+                "id": "position",
+                "label": "Position",
+                "report_type": "position_update",
+                "template": "Position update from {reporter_id} near {location}.",
+            },
+            {
+                "id": "hazard",
+                "label": "Hazard",
+                "report_type": "hazard",
+                "template": "Hazard observed near {location}. Human review recommended.",
+            },
+            {
+                "id": "contact",
+                "label": "Contact",
+                "report_type": "observation",
+                "template": "Possible contact or threat activity observed near {location}. Confidence limited pending review.",
+            },
+            {
+                "id": "delay",
+                "label": "Delay",
+                "report_type": "status_update",
+                "template": "Movement delay reported near {location}.",
+            },
+            {
+                "id": "comms",
+                "label": "Comms",
+                "report_type": "communications_check",
+                "template": "Communications issue reported near {location}.",
+            },
+            {
+                "id": "medevac",
+                "label": "Medevac",
+                "report_type": "medical",
+                "template": "Medical event or medevac support may be required near {location}.",
+            },
+            {
+                "id": "logistics",
+                "label": "Logistics",
+                "report_type": "logistics",
+                "template": "Logistics support issue reported near {location}.",
+            },
+            {
+                "id": "unknown",
+                "label": "Unknown",
+                "report_type": "unknown_requires_review",
+                "template": "Unknown field report requiring human review near {location}.",
+            },
+        ]
+
+    @staticmethod
+    def _operator_map_marker(
+        marker_id: str,
+        label: str,
+        kind: str,
+        status: str,
+        confidence: float,
+        summary: str,
+        related_id: str,
+    ) -> dict[str, object]:
+        seed = sum(ord(character) for character in f"{marker_id}:{label}:{kind}")
+        return {
+            "id": marker_id,
+            "label": label,
+            "kind": kind,
+            "status": status,
+            "confidence": round(confidence, 2),
+            "summary": summary,
+            "related_id": related_id,
+            "left_percent": 14 + (seed % 70),
+            "top_percent": 18 + ((seed * 7) % 58),
+        }
+
     def cop_state_document(self) -> dict[str, object]:
-        state = self.cop_manager.state()
+        try:
+            state = self.cop_manager.state()
+        except ValueError:
+            return {
+                "id": "cop-empty",
+                "name": "empty",
+                "data_mode": DataMode.SYNTHETIC.value,
+                "mission_context_id": self.mission_context.id if self.mission_context else None,
+                "tracks": [],
+            }
         reports = self.database.list_documents("operator_reports") if self.database else ()
         advisories = self.database.list_documents("cop_advisories") if self.database else ()
         return {

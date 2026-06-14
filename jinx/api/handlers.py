@@ -33,6 +33,9 @@ class JINXAPIHandlers:
             "report_id": report.id,
             "event_id": result.intake.event.id,
             "advisory_id": result.intake.advisory.id,
+            "advisory_summary": result.intake.advisory.summary,
+            "status": "queued_for_human_review",
+            "acknowledged_at": report.timestamp.isoformat(),
             "delivered": result.report_route.delivered and result.advisory_route.delivered,
         }
 
@@ -207,6 +210,12 @@ class JINXAPIHandlers:
             session_id=payload.get("session_id") or None,
             use_core_reachback=payload.get("use_core_reachback", "true").lower() != "false",
         )
+
+    def operator_workspace(self, reporter_id: str, device_id: str = "") -> dict[str, object]:
+        return self.service.operator_workspace_document(reporter_id=reporter_id, device_id=device_id)
+
+    def operator_brain_thread(self, reporter_id: str) -> dict[str, object]:
+        return self.service.operator_brain_thread_document(reporter_id)
 
     def run_c5isr_scenario(self, payload: dict[str, str]) -> dict[str, object]:
         return self.service.run_c5isr_scenario_pack(payload.get("scenario_id", "default"))
