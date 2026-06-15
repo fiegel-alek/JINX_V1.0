@@ -119,6 +119,21 @@ function escapeHTML(value) {
   })[char]);
 }
 
+function pairGrid(pairs) {
+  const rows = pairs.filter(([, value]) => value !== undefined && value !== null && String(value) !== "");
+  if (!rows.length) return "";
+  return `
+    <div class="data-pair-grid">
+      ${rows.map(([label, value]) => `
+        <div class="data-pair">
+          <span class="data-pair-label">${escapeHTML(label)}</span>
+          <span class="data-pair-value">${escapeHTML(value)}</span>
+        </div>
+      `).join("")}
+    </div>
+  `;
+}
+
 function formatTime(value) {
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? "unknown" : date.toLocaleTimeString();
@@ -269,9 +284,13 @@ function renderSelection(marker) {
   operator.selectionCard.className = "list operator-selection";
   operator.selectionCard.innerHTML = `
     <article class="item ${escapeHTML(marker.kind)}">
-      <strong>${escapeHTML(marker.label)} · ${escapeHTML(marker.kind)}</strong>
+      <strong>${escapeHTML(marker.label)}</strong>
       <span>${escapeHTML(marker.summary)}</span>
-      <span>status ${escapeHTML(marker.status)} · confidence ${escapeHTML(marker.confidence)}</span>
+      ${pairGrid([
+        ["Type", marker.kind],
+        ["Status", marker.status],
+        ["Confidence", marker.confidence],
+      ])}
     </article>
   `;
 }
@@ -309,7 +328,10 @@ function renderReceipt() {
     <article class="item advisory">
       <strong>${escapeHTML(lastReceipt.status || "queued_for_human_review")}</strong>
       <span>${escapeHTML(lastReceipt.advisory_summary || lastReceipt.summary || "Receipt recorded.")}</span>
-      <span>${escapeHTML(lastReceipt.report_id || lastReceipt.local_id || "pending")} · ${escapeHTML(lastReceipt.acknowledged_at || lastReceipt.queued_at || "")}</span>
+      ${pairGrid([
+        ["Report", lastReceipt.report_id || lastReceipt.local_id || "pending"],
+        ["Time", lastReceipt.acknowledged_at || lastReceipt.queued_at || ""],
+      ])}
     </article>
   `;
 }
@@ -319,7 +341,10 @@ function renderAdvisories(advisories) {
   renderList(operator.advisoryList, advisories.slice(-6).reverse(), "No advisories", (advisory) => `
     <article class="item advisory">
       <strong>${escapeHTML(advisory.summary)}</strong>
-      <span>confidence ${escapeHTML(advisory.confidence)} · ${formatTime(advisory.timestamp)}</span>
+      ${pairGrid([
+        ["Confidence", advisory.confidence],
+        ["Time", formatTime(advisory.timestamp)],
+      ])}
     </article>
   `);
 }
@@ -328,9 +353,13 @@ function renderReports(reports) {
   document.querySelector("#report-count").textContent = reports.length;
   renderList(operator.reportList, reports.slice(-6).reverse(), "No reports yet", (report) => `
     <article class="item">
-      <strong>${escapeHTML(report.report_type)} · ${escapeHTML(report.review_state || "new")}</strong>
+      <strong>${escapeHTML(report.report_type)}</strong>
       <span>${escapeHTML(report.summary)}</span>
-      <span>${escapeHTML(report.location || "unknown location")} · ${formatTime(report.timestamp)}</span>
+      ${pairGrid([
+        ["Review state", report.review_state || "new"],
+        ["Location", report.location || "unknown location"],
+        ["Time", formatTime(report.timestamp)],
+      ])}
     </article>
   `);
 }
@@ -339,9 +368,13 @@ function renderBrain(messages) {
   document.querySelector("#brain-count").textContent = messages.length;
   renderList(operator.brainList, messages.slice(-5).reverse(), "No operator BRAIN thread yet", (message) => `
     <article class="item brain-chat">
-      <strong>${escapeHTML(message.answer.confidence_band)} · reachback ${message.answer.core_reachback_used ? "used" : "not used"}</strong>
+      <strong>${escapeHTML(message.answer.confidence_band)} confidence</strong>
       <span>Q: ${escapeHTML(message.question.text)}</span>
       <span>${escapeHTML(message.answer.answer_text)}</span>
+      ${pairGrid([
+        ["Reachback", message.answer.core_reachback_used ? "Used" : "Not used"],
+        ["References", (message.answer.references || []).join(", ") || "none"],
+      ])}
     </article>
   `);
 }

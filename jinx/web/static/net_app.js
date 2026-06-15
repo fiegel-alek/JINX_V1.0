@@ -85,6 +85,21 @@ function escapeHTML(value) {
   })[char]);
 }
 
+function pairGrid(pairs) {
+  const rows = pairs.filter(([, value]) => value !== undefined && value !== null && String(value) !== "");
+  if (!rows.length) return "";
+  return `
+    <div class="data-pair-grid">
+      ${rows.map(([label, value]) => `
+        <div class="data-pair">
+          <span class="data-pair-label">${escapeHTML(label)}</span>
+          <span class="data-pair-value">${escapeHTML(value)}</span>
+        </div>
+      `).join("")}
+    </div>
+  `;
+}
+
 function renderList(container, records, emptyText, renderer) {
   if (!records || records.length === 0) {
     container.className = "list empty";
@@ -143,8 +158,13 @@ function renderPlans(plans) {
   renderList(net.planList, plans.slice(-8).reverse(), "No NET plans", (plan) => `
     <article class="item net">
       <strong>${escapeHTML(plan.name)} · ${escapeHTML(plan.source_format)}</strong>
-      <span>nodes ${escapeHTML((plan.nodes || []).length)} · timeslots ${escapeHTML((plan.timeslots || []).length)} · LOS ${escapeHTML((plan.los_links || []).length)}</span>
-      <span>${escapeHTML(plan.data_mode)} · confidence ${escapeHTML(plan.confidence)}</span>
+      ${pairGrid([
+        ["Nodes", (plan.nodes || []).length],
+        ["Timeslots", (plan.timeslots || []).length],
+        ["LOS links", (plan.los_links || []).length],
+        ["Mode", plan.data_mode],
+        ["Confidence", plan.confidence],
+      ])}
     </article>
   `);
 }
@@ -156,8 +176,11 @@ function renderIssues(issues) {
     <article class="item net conflict">
       <strong>${escapeHTML(issue.issue_type)} · ${escapeHTML(issue.severity)}</strong>
       <span>${escapeHTML(issue.summary)}</span>
-      <span>nodes: ${escapeHTML((issue.affected_nodes || []).join(", ") || "none")} · delivered ${escapeHTML(issue.delivered_to_core)}</span>
-      <span>review: ${escapeHTML(issue.recommended_review_role)}</span>
+      ${pairGrid([
+        ["Nodes", (issue.affected_nodes || []).join(", ") || "none"],
+        ["Delivered", issue.delivered_to_core],
+        ["Review", issue.recommended_review_role],
+      ])}
     </article>
   `);
 }
@@ -169,7 +192,11 @@ function renderValidationRuns(runs) {
     <article class="item net">
       <strong>${escapeHTML(run.id)}</strong>
       <span>${escapeHTML(run.summary)}</span>
-      <span>plan ${escapeHTML(run.plan_id)} · issues ${escapeHTML((run.issue_ids || []).length)} · confidence ${escapeHTML(run.confidence)}</span>
+      ${pairGrid([
+        ["Plan", run.plan_id],
+        ["Issues", (run.issue_ids || []).length],
+        ["Confidence", run.confidence],
+      ])}
     </article>
   `);
 }
@@ -179,9 +206,13 @@ function renderAdvisories(advisories) {
   document.querySelector("#net-advisory-count").textContent = advisories.length;
   renderList(net.advisoryList, advisories.slice(-10).reverse(), "No NET advisories", (advisory) => `
     <article class="item net recommendation">
-      <strong>${escapeHTML(advisory.recommended_review_role)} · confidence ${escapeHTML(advisory.confidence)}</strong>
+      <strong>${escapeHTML(advisory.recommended_review_role)}</strong>
       <span>${escapeHTML(advisory.summary)}</span>
-      <span>${advisory.required_human_review ? "human review required" : "review missing"} · issue ${escapeHTML(advisory.issue_id)}</span>
+      ${pairGrid([
+        ["Confidence", advisory.confidence],
+        ["Human review", advisory.required_human_review ? "Required" : "Missing"],
+        ["Issue", advisory.issue_id],
+      ])}
     </article>
   `);
 }
@@ -190,9 +221,13 @@ function renderBrain(messages) {
   document.querySelector("#brain-chat-count").textContent = messages.length;
   renderList(net.brainChatList, messages.slice(-6).reverse(), "No Brain chat yet", (message) => `
     <article class="item brain-chat">
-      <strong>${escapeHTML(message.answer.confidence_band)} · Core reachback ${message.answer.core_reachback_used ? "used" : "not used"}</strong>
+      <strong>${escapeHTML(message.answer.confidence_band)} confidence</strong>
       <span>Q: ${escapeHTML(message.question.text)}</span>
       <span>${escapeHTML(message.answer.answer_text)}</span>
+      ${pairGrid([
+        ["Reachback", message.answer.core_reachback_used ? "Used" : "Not used"],
+        ["References", (message.answer.references || []).join(", ") || "none"],
+      ])}
     </article>
   `);
 }

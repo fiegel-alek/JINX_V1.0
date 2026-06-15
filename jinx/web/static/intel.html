@@ -88,25 +88,30 @@
             <form id="intel-summary-form" class="form">
               <div class="form-grid">
                 <label>
-                  Source
+                  <span class="field-label">Source</span>
+                  <span class="field-help">Summary source category</span>
                   <input name="source_category" value="synthetic_isr_summary" required />
                 </label>
                 <label>
-                  Reliability
+                  <span class="field-label">Reliability</span>
+                  <span class="field-help">Use a value from 0.0 to 1.0</span>
                   <input name="reliability" value="0.78" required />
                 </label>
               </div>
               <label>
-                Summary
+                <span class="field-label">Summary</span>
+                <span class="field-help">Short analytic statement</span>
                 <textarea name="summary" required>Synthetic weather visibility and communications pattern changes may affect Route Alpha planning assumptions.</textarea>
               </label>
               <div class="form-grid">
                 <label>
-                  Related Locations
+                  <span class="field-label">Related locations</span>
+                  <span class="field-help">Comma-separated routes, areas, or grids</span>
                   <input name="related_locations" value="Route Alpha,Area Alpha" />
                 </label>
                 <label>
-                  Related Entities
+                  <span class="field-label">Related entities</span>
+                  <span class="field-help">Comma-separated units or callsigns</span>
                   <input name="related_entities" value="operator-alpha,operator-bravo" />
                 </label>
               </div>
@@ -122,11 +127,13 @@
             <form id="isr-feed-form" class="form">
               <div class="form-grid">
                 <label>
-                  Feed
+                  <span class="field-label">Feed</span>
+                  <span class="field-help">Readable feed name</span>
                   <input name="feed_name" value="Synthetic ISR Orbit Alpha" required />
                 </label>
                 <label>
-                  Status
+                  <span class="field-label">Status</span>
+                  <span class="field-help">Current feed availability</span>
                   <select name="status">
                     <option value="available">Available</option>
                     <option value="degraded">Degraded</option>
@@ -136,16 +143,19 @@
               </div>
               <div class="form-grid">
                 <label>
-                  Feed Type
+                  <span class="field-label">Feed type</span>
+                  <span class="field-help">Source or sensor family</span>
                   <input name="feed_type" value="synthetic_full_motion_video" required />
                 </label>
                 <label>
-                  Coverage
+                  <span class="field-label">Coverage</span>
+                  <span class="field-help">Area or route watched by the feed</span>
                   <input name="coverage_area" value="grid-alpha to grid-charlie" required />
                 </label>
               </div>
               <label>
-                Summary
+                <span class="field-label">Summary</span>
+                <span class="field-help">Short description of what the feed means for analysts</span>
                 <textarea name="summary" required>Synthetic ISR feed snapshot available for analyst review and module impact mapping.</textarea>
               </label>
               <button type="submit">Publish ISR Feed</button>
@@ -202,7 +212,8 @@
             </div>
             <form id="brain-chat-form" class="form">
               <label>
-                Question
+                <span class="field-label">Question</span>
+                <span class="field-help">Ask for doctrine, review logic, or impact context</span>
                 <textarea name="text" required>What should an analyst review before promoting a synthetic intelligence correlation into a planning assumption?</textarea>
               </label>
               <input type="hidden" name="user_id" value="intel-analyst-alpha" />

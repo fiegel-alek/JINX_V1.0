@@ -34,26 +34,31 @@
         </div>
         <div class="operator-form-grid">
           <label>
-            Session user
+            <span class="field-label">Session user</span>
+            <span class="field-help">Package login name</span>
             <input id="username-input" value="operator-alpha" />
           </label>
           <label>
-            Operator
+            <span class="field-label">Operator</span>
+            <span class="field-help">Callsign or operator id</span>
             <input id="reporter-id" value="operator-alpha" />
           </label>
           <label>
-            Device
+            <span class="field-label">Device</span>
+            <span class="field-help">Field device identifier</span>
             <input id="device-id" value="operator-mini-001" />
           </label>
           <label>
-            Role
+            <span class="field-label">Role</span>
+            <span class="field-help">Active package permission set</span>
             <select id="role-select">
               <option value="operator" selected>Operator</option>
               <option value="system_administrator">System administrator</option>
             </select>
           </label>
           <label>
-            Sync state
+            <span class="field-label">Sync state</span>
+            <span class="field-help">Live or locally queued</span>
             <input id="sync-state" value="Live" readonly />
           </label>
         </div>
@@ -81,7 +86,7 @@
       </section>
 
       <details id="action-drawer" class="operator-drawer">
-        <summary>Report / Action Menu</summary>
+        <summary>Report Actions</summary>
         <div class="operator-drawer-body">
           <div class="section-head">
             <h2>Quick Actions</h2>
@@ -91,11 +96,13 @@
           <form id="report-form" class="form">
             <input type="hidden" name="report_type" value="position_update" />
             <label>
-              Location
+              <span class="field-label">Location</span>
+              <span class="field-help">Map selection, grid, route, or named area</span>
               <input name="location" value="Local operator area" required />
             </label>
             <label>
-              Summary
+              <span class="field-label">Summary</span>
+              <span class="field-help">Short factual report text</span>
               <textarea name="summary" required>Position update from operator-alpha near Local operator area.</textarea>
             </label>
             <div class="operator-inline-actions">
@@ -133,7 +140,8 @@
           </div>
           <form id="brain-chat-form" class="form">
             <label>
-              Question
+              <span class="field-label">Question</span>
+              <span class="field-help">Ask for doctrine, SOP, or review guidance</span>
               <textarea name="text" required>What should I human-review first before updating local movement assumptions?</textarea>
             </label>
             <input type="hidden" name="use_core_reachback" value="true" />

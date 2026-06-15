@@ -97,11 +97,13 @@
             <form id="scenario-form" class="form">
               <div class="form-grid">
                 <label>
-                  Scenario name
+                  <span class="field-label">Scenario name</span>
+                  <span class="field-help">Readable replay name</span>
                   <input name="name" value="Cross-Domain Route Degradation" required />
                 </label>
                 <label>
-                  Expected outputs
+                  <span class="field-label">Expected outputs</span>
+                  <span class="field-help">Comma-separated output ids</span>
                   <input
                     name="expected_outputs"
                     value="mission_context_update,operator_report_intake,intel_summary_ingest,isr_feed_publish,network_plan_validation,brain_reference_answer"
@@ -110,11 +112,13 @@
                 </label>
               </div>
               <label>
-                Summary
+                <span class="field-label">Summary</span>
+                <span class="field-help">What the synthetic scenario is trying to test</span>
                 <textarea name="summary" required>Mixed synthetic injects for operator report, ISR weather context, and communications degradation across the same route.</textarea>
               </label>
               <label>
-                Inject script
+                <span class="field-label">Inject script</span>
+                <span class="field-help">One line per inject with offset, type, and fields</span>
                 <textarea name="inject_script" required>0|mission_context|mission_statement=Monitor Route Alpha under synthetic weather degradation.|route=Route Alpha|named_area=Area Alpha|timeline=T+00 to T+40
 30|operator_report|reporter_id=operator-alpha|device_id=operator-mini-sim|report_type=hazard|summary=Operator reports movement delay and reduced visibility near Route Alpha.|location=grid-alpha
 60|intel_summary|summary=Synthetic weather and terrain context may degrade route timing and sensor confidence.|related_locations=Route Alpha,Area Alpha|related_entities=operator-alpha
@@ -142,7 +146,8 @@
             </div>
             <form id="scrub-form" class="form">
               <label>
-                Scrub clock (seconds)
+                <span class="field-label">Scrub clock</span>
+                <span class="field-help">Jump the replay timeline by seconds</span>
                 <input name="offset_seconds" type="number" min="0" value="60" />
               </label>
               <button type="submit">Scrub</button>
@@ -192,7 +197,8 @@
             </div>
             <form id="brain-chat-form" class="form">
               <label>
-                Question
+                <span class="field-label">Question</span>
+                <span class="field-help">Ask for review order, doctrine, or replay interpretation</span>
                 <textarea name="text" required>What should the human review first when a synthetic route delay combines operator reporting, ISR degradation, and communications risk?</textarea>
               </label>
               <input type="hidden" name="user_id" value="simulation-operator" />

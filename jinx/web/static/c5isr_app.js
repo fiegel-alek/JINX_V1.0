@@ -93,6 +93,21 @@ function escapeHTML(value) {
   })[char]);
 }
 
+function pairGrid(pairs) {
+  const rows = pairs.filter(([, value]) => value !== undefined && value !== null && String(value) !== "");
+  if (!rows.length) return "";
+  return `
+    <div class="data-pair-grid">
+      ${rows.map(([label, value]) => `
+        <div class="data-pair">
+          <span class="data-pair-label">${escapeHTML(label)}</span>
+          <span class="data-pair-value">${escapeHTML(value)}</span>
+        </div>
+      `).join("")}
+    </div>
+  `;
+}
+
 function renderList(container, records, emptyText, renderer) {
   if (!records || records.length === 0) {
     container.className = "list empty";
@@ -170,8 +185,13 @@ function renderTracks(cop) {
   renderList(c5.trackList, tracks, "No tracks loaded", (track) => `
     <article class="item">
       <strong>${escapeHTML(track.label)}</strong>
-      <span>${escapeHTML(track.location)} · ${escapeHTML(track.lifecycle || track.status)} · confidence ${escapeHTML(track.confidence)}</span>
-      <span>${track.human_validated ? "human validated" : "human validation pending"} · updated ${formatTime(track.updated_at)}</span>
+      ${pairGrid([
+        ["Location", track.location],
+        ["State", track.lifecycle || track.status],
+        ["Confidence", track.confidence],
+        ["Validation", track.human_validated ? "Human validated" : "Pending"],
+        ["Updated", formatTime(track.updated_at)],
+      ])}
     </article>
   `);
   tracks.forEach((track, index) => {
@@ -196,7 +216,10 @@ function renderMission(mission) {
     <article class="item">
       <strong>${escapeHTML(mission.mission_statement)}</strong>
       <span>${escapeHTML(mission.commander_intent)}</span>
-      <span>Routes: ${escapeHTML((mission.routes || []).join(", ") || "none")}</span>
+      ${pairGrid([
+        ["Routes", (mission.routes || []).join(", ") || "none"],
+        ["Areas", (mission.named_areas || []).join(", ") || "none"],
+      ])}
     </article>
   `;
 }
@@ -210,7 +233,12 @@ function renderReports(reports) {
   renderList(c5.reportList, reports.slice(-10).reverse(), "No reports", (report) => `
     <article class="item">
       <strong>${escapeHTML(report.reporter_id)} · ${escapeHTML(report.report_type)}</strong>
-      <span>${escapeHTML(report.location || "no location")} · confidence ${escapeHTML(report.confidence)} · ${escapeHTML(report.summary)}</span>
+      <span>${escapeHTML(report.summary)}</span>
+      ${pairGrid([
+        ["Location", report.location || "no location"],
+        ["Confidence", report.confidence],
+        ["Review state", report.review_state || "new"],
+      ])}
       <div class="review-row">
         <span class="badge review-${escapeHTML(report.review_state || "new")}">${reviewLabel(report.review_state)}</span>
       </div>
@@ -222,9 +250,13 @@ function renderReview(items) {
   document.querySelector("#review-center-count").textContent = items.length;
   renderList(c5.reviewCenterList, items, "No review items", (item) => `
     <article class="item review-item">
-      <strong>${escapeHTML(item.kind)} · ${escapeHTML(item.severity)} · ${escapeHTML(item.review_state)}</strong>
+      <strong>${escapeHTML(item.kind)} · ${escapeHTML(item.review_state)}</strong>
       <span>${escapeHTML(item.summary)}</span>
-      <span>assigned ${escapeHTML(item.assigned_reviewer)} · escalation ${escapeHTML(item.escalation_state)}</span>
+      ${pairGrid([
+        ["Severity", item.severity],
+        ["Assigned", item.assigned_reviewer],
+        ["Escalation", item.escalation_state],
+      ])}
     </article>
   `);
 }
@@ -233,9 +265,12 @@ function renderMissionImpacts(impacts) {
   document.querySelector("#mission-impact-count").textContent = impacts.length;
   renderList(c5.missionImpactList, impacts, "No mission impacts", (impact) => `
     <article class="item mission-impact">
-      <strong>${escapeHTML(impact.impacted_area)} · confidence ${escapeHTML(impact.confidence)}</strong>
+      <strong>${escapeHTML(impact.impacted_area)}</strong>
       <span>${escapeHTML(impact.summary)}</span>
-      <span>review: ${escapeHTML(impact.recommended_review_role)}</span>
+      ${pairGrid([
+        ["Confidence", impact.confidence],
+        ["Review", impact.recommended_review_role],
+      ])}
     </article>
   `);
 }
@@ -246,7 +281,8 @@ function renderAdvisories(advisories) {
   renderList(c5.advisoryList, advisories.slice(-10).reverse(), "No advisories", (advisory) => `
     <article class="item advisory">
       <strong>${escapeHTML(advisory.recipient_id)}</strong>
-      <span>${escapeHTML(advisory.summary)} · confidence ${escapeHTML(advisory.confidence)}</span>
+      <span>${escapeHTML(advisory.summary)}</span>
+      ${pairGrid([["Confidence", advisory.confidence]])}
     </article>
   `);
 }
@@ -257,7 +293,10 @@ function renderConflicts(conflicts) {
     <article class="item conflict">
       <strong>${escapeHTML(conflict.conflict_type)}</strong>
       <span>${escapeHTML(conflict.explanation)}</span>
-      <span>confidence ${escapeHTML(conflict.confidence)} · review: ${escapeHTML(conflict.recommended_review_role)}</span>
+      ${pairGrid([
+        ["Confidence", conflict.confidence],
+        ["Review", conflict.recommended_review_role],
+      ])}
     </article>
   `);
 }
@@ -268,6 +307,10 @@ function renderRecommendations(recommendations) {
     <article class="item recommendation">
       <strong>${escapeHTML(recommendation.recommendation_type)}</strong>
       <span>${escapeHTML(recommendation.text)}</span>
+      ${pairGrid([
+        ["Confidence", recommendation.confidence],
+        ["Human review", recommendation.required_human_review ? "Required" : "No"],
+      ])}
     </article>
   `);
 }
@@ -276,9 +319,13 @@ function renderBrain(messages) {
   document.querySelector("#brain-chat-count").textContent = messages.length;
   renderList(c5.brainChatList, messages.slice(-5).reverse(), "No Brain chat yet", (message) => `
     <article class="item brain-chat">
-      <strong>${escapeHTML(message.answer.confidence_band)} · Core reachback ${message.answer.core_reachback_used ? "used" : "not used"}</strong>
+      <strong>${escapeHTML(message.answer.confidence_band)} confidence</strong>
       <span>Q: ${escapeHTML(message.question.text)}</span>
       <span>${escapeHTML(message.answer.answer_text)}</span>
+      ${pairGrid([
+        ["Reachback", message.answer.core_reachback_used ? "Used" : "Not used"],
+        ["References", (message.answer.references || []).join(", ") || "none"],
+      ])}
     </article>
   `);
 }

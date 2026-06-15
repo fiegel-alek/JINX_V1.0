@@ -111,15 +111,18 @@
             <form id="report-form" class="form">
               <div class="form-grid">
                 <label>
-                  Reporter
+                  <span class="field-label">Reporter</span>
+                  <span class="field-help">Submitting operator or source id</span>
                   <input name="reporter_id" value="operator-alpha" required />
                 </label>
                 <label>
-                  Device
+                  <span class="field-label">Device</span>
+                  <span class="field-help">Source device identifier</span>
                   <input name="device_id" value="operator-mini-001" required />
                 </label>
                 <label>
-                  Type
+                  <span class="field-label">Type</span>
+                  <span class="field-help">Report category</span>
                   <select name="report_type">
                     <option value="observation">Observation</option>
                     <option value="communications_check">Communications check</option>
@@ -131,12 +134,14 @@
                   </select>
                 </label>
                 <label>
-                  Location
+                  <span class="field-label">Location</span>
+                  <span class="field-help">Grid, route, or named area</span>
                   <input name="location" value="synthetic-grid-alpha" required />
                 </label>
               </div>
               <label>
-                Summary
+                <span class="field-label">Summary</span>
+                <span class="field-help">Short factual operator report text</span>
                 <textarea name="summary" required>Synthetic operator observation from C5ISR interface.</textarea>
               </label>
               <button type="submit">Submit Report</button>
@@ -208,7 +213,8 @@
             </div>
             <form id="brain-chat-form" class="form">
               <label>
-                Question
+                <span class="field-label">Question</span>
+                <span class="field-help">Ask for review guidance, doctrine, or conflict context</span>
                 <textarea name="text" required>What should a human review before changing Route Alpha assumptions?</textarea>
               </label>
               <input type="hidden" name="user_id" value="operator-alpha" />
