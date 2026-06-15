@@ -1,10 +1,11 @@
 """High-level application orchestration services."""
 
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import uuid4
 
+from jinx.adapters import AdapterGate, AdapterManifest
 from jinx.brain.chat import BrainChatEngine, BrainChatQuestion
 from jinx.brain.confidence import BrainConfidenceEngine
 from jinx.brain.context_builder import BoundedBrainContext, BrainContextBuilder
@@ -15,8 +16,9 @@ from jinx.brain.knowledge.repository import DoctrineRepository
 from jinx.brain.learner import ConservativeLearner
 from jinx.brain.option_generation import BrainOptionGenerator
 from jinx.bus import FabricMessage, MessageRouter, RouteResult
-from jinx.common.types import DataMode, EventType
+from jinx.common.types import DataMode, EventType, SafetyClassification
 from jinx.core.audit import AuditLog
+from jinx.core.identity.defaults import build_default_access_control
 from jinx.core.policy import PolicyEngine
 from jinx.core.persistence import SQLiteJINXDatabase
 from jinx.core.provenance import ProvenanceRecord
@@ -70,6 +72,8 @@ class JINXApplicationService:
         self.audit_log = AuditLog()
         self.router = router or MessageRouter(PolicyEngine(build_default_registry()), self.audit_log)
         self.database = database
+        self.access_control = build_default_access_control()
+        self.adapter_gate = AdapterGate()
         self.c5isr_intake = C5ISRReportIntake()
         self.cop_manager = COPManager(name="jinx-phase3-cop")
         self.core_reasoning = CoreReasoningWorkflow(self.router)
@@ -85,6 +89,8 @@ class JINXApplicationService:
         self.mission_impact_analyzer = MissionImpactAnalyzer()
         self.mission_context: MissionContext | None = None
         self._events: list[Event] = []
+        if self.database is not None:
+            self._ensure_governance_state()
 
     def submit_operator_report(self, report: OperatorReport) -> OperatorReportResult:
         report_route = self.router.route(
@@ -991,6 +997,272 @@ class JINXApplicationService:
         ]
         return {"messages": filtered[-8:]}
 
+    def identity_users_document(self) -> dict[str, object]:
+        self._ensure_governance_state()
+        users = self.database.list_documents("identity_users") if self.database else ()
+        sessions = self.database.list_documents("auth_sessions") if self.database else ()
+        return {
+            "identity": {
+                "users": list(users),
+                "roles": [
+                    {
+                        "name": role.name,
+                        "description": role.description,
+                        "permissions": sorted(role.permissions),
+                    }
+                    for role in self.access_control.roles.values()
+                ],
+                "active_session_count": sum(
+                    1 for session in sessions if session.get("status") == "active"
+                ),
+            }
+        }
+
+    def register_identity_user(
+        self,
+        username: str,
+        display_name: str,
+        roles: tuple[str, ...],
+        default_package: str = "operator",
+        reporter_id: str = "",
+        device_id: str = "",
+    ) -> dict[str, object]:
+        self._ensure_governance_state()
+        if self.database is None:
+            raise ValueError("database is required for identity registration")
+        if not username:
+            raise ValueError("username is required")
+        if not display_name:
+            raise ValueError("display_name is required")
+        if not roles:
+            raise ValueError("roles are required")
+        unknown_roles = [role for role in roles if role not in self.access_control.roles]
+        if unknown_roles:
+            raise ValueError(f"unknown roles: {', '.join(sorted(unknown_roles))}")
+        existing = next(
+            (
+                document
+                for document in self.database.list_documents("identity_users")
+                if document.get("username") == username
+            ),
+            None,
+        )
+        document = {
+            "id": existing["id"] if existing else f"user-{uuid4().hex[:12]}",
+            "username": username,
+            "display_name": display_name,
+            "roles": list(roles),
+            "default_package": default_package,
+            "reporter_id": reporter_id or username,
+            "device_id": device_id or f"{default_package}-device",
+            "active": True,
+            "updated_at": datetime.now(UTC).isoformat(),
+        }
+        self.database.save_document("identity_users", document["id"], document)
+        self._append_timeline(
+            "identity_user",
+            f"Identity user {username} registered or updated.",
+            {"user_id": document["id"], "default_package": default_package},
+        )
+        return {"user": document}
+
+    def issue_auth_session(
+        self,
+        username: str,
+        package: str,
+        reporter_id: str = "",
+        device_id: str = "",
+    ) -> dict[str, object]:
+        self._ensure_governance_state()
+        if self.database is None:
+            raise ValueError("database is required for auth sessions")
+        user = self._identity_user_by_username(username)
+        if not self.package_license_allows(package, username):
+            raise PermissionError(f"user {username} is not licensed for package {package}")
+        permissions = sorted(self._permissions_for_roles(tuple(user.get("roles", ()))))
+        session_id = f"session-{uuid4().hex[:16]}"
+        license_document = self._package_license_for(package)
+        document = {
+            "id": session_id,
+            "username": user["username"],
+            "display_name": user["display_name"],
+            "roles": list(user.get("roles", ())),
+            "permissions": permissions,
+            "package": package,
+            "reporter_id": reporter_id or user.get("reporter_id") or username,
+            "device_id": device_id or user.get("device_id") or f"{package}-device",
+            "status": "active",
+            "auth_mode": "synthetic_local_session",
+            "license_active": bool(license_document.get("active", False)),
+            "simulation_only": bool(license_document.get("simulation_only", True)),
+            "created_at": datetime.now(UTC).isoformat(),
+            "expires_at": (datetime.now(UTC) + timedelta(hours=12)).isoformat(),
+        }
+        self.database.save_document("auth_sessions", session_id, document)
+        self._append_timeline(
+            "auth_session",
+            f"Session issued for {username} on package {package}.",
+            {"session_id": session_id, "package": package},
+        )
+        return {"session": document}
+
+    def auth_session_document(self, session_id: str = "") -> dict[str, object]:
+        self._ensure_governance_state()
+        if self.database is None or not session_id:
+            return {"session": None}
+        try:
+            return {"session": self.database.get_document("auth_sessions", session_id)}
+        except KeyError:
+            return {"session": None}
+
+    def license_state_document(self) -> dict[str, object]:
+        self._ensure_governance_state()
+        licenses = self.database.list_documents("package_licenses") if self.database else ()
+        return {
+            "licenses": list(licenses),
+            "summary": {
+                "active_packages": sum(1 for document in licenses if document.get("active")),
+                "controlled_real_adapters_enabled": sum(
+                    1 for document in licenses if document.get("controlled_real_adapters_enabled")
+                ),
+            },
+        }
+
+    def upsert_package_license(
+        self,
+        package: str,
+        active: bool,
+        authorized_users: tuple[str, ...],
+        notes: str = "",
+        controlled_real_adapters_enabled: bool = False,
+    ) -> dict[str, object]:
+        self._ensure_governance_state()
+        if self.database is None:
+            raise ValueError("database is required for package licenses")
+        document = self._package_license_for(package)
+        document.update(
+            {
+                "active": active,
+                "authorized_users": list(authorized_users),
+                "notes": notes,
+                "controlled_real_adapters_enabled": controlled_real_adapters_enabled,
+                "updated_at": datetime.now(UTC).isoformat(),
+            }
+        )
+        self.database.save_document("package_licenses", package, document)
+        self._append_timeline(
+            "license_update",
+            f"Package {package} license updated.",
+            {"package": package, "active": str(active)},
+        )
+        return {"license": document}
+
+    def entitlement_document(
+        self,
+        package: str,
+        username: str = "",
+        session_id: str = "",
+    ) -> dict[str, object]:
+        self._ensure_governance_state()
+        license_document = self._package_license_for(package)
+        policy = self._boundary_policy_for_package(package)
+        session = self.auth_session_document(session_id).get("session") if session_id else None
+        return {
+            "entitlement": {
+                "package": package,
+                "license_active": bool(license_document.get("active", False)),
+                "authorized_for_user": self.package_license_allows(package, username) if username else bool(license_document.get("active", False)),
+                "authorized_users": list(license_document.get("authorized_users", ())),
+                "simulation_only": bool(license_document.get("simulation_only", True)),
+                "controlled_real_adapters_enabled": bool(
+                    license_document.get("controlled_real_adapters_enabled", False)
+                ),
+                "denied_permission_prefixes": list(policy.get("denied_permission_prefixes", ())),
+                "session_id": session.get("id") if session else None,
+            }
+        }
+
+    def boundary_controls_document(self) -> dict[str, object]:
+        self._ensure_governance_state()
+        policy_decisions = self.database.list_documents("policy_decisions") if self.database else ()
+        redactions = [
+            record
+            for record in (self.database.list_documents("audit_records") if self.database else ())
+            if record.get("event_type") == "boundary_redaction"
+        ]
+        packages = []
+        for document in self.database.list_documents("package_licenses") if self.database else ():
+            policy = self._boundary_policy_for_package(str(document.get("package", "")))
+            packages.append(
+                {
+                    "package": document.get("package"),
+                    "active": document.get("active"),
+                    "authorized_users": list(document.get("authorized_users", ())),
+                    "simulation_only": document.get("simulation_only", True),
+                    "denied_permission_prefixes": list(policy.get("denied_permission_prefixes", ())),
+                    "summary": policy.get("summary", ""),
+                }
+            )
+        return {
+            "boundary_controls": {
+                "packages": packages,
+                "recent_redactions": list(redactions)[-8:],
+                "recent_policy_denials": [
+                    record for record in policy_decisions if not record.get("allowed", True)
+                ][-8:],
+            }
+        }
+
+    def adapter_registry_document(self) -> dict[str, object]:
+        self._ensure_governance_state()
+        adapters = (
+            [self._evaluated_adapter_document(document) for document in self.database.list_documents("adapter_manifests")]
+            if self.database
+            else []
+        )
+        return {
+            "adapters": adapters,
+            "summary": {
+                "enabled": sum(1 for document in adapters if document.get("enabled")),
+                "authorized_live": sum(
+                    1
+                    for document in adapters
+                    if document.get("data_mode") == DataMode.LIVE_CONTROLLED_ADAPTER.value
+                    and document.get("explicitly_authorized")
+                ),
+                "blocked": sum(1 for document in adapters if document.get("status") == "blocked"),
+            },
+        }
+
+    def update_adapter_state(
+        self,
+        adapter_id: str,
+        action: str,
+        explicitly_authorized: bool | None = None,
+        enabled: bool | None = None,
+        data_mode: str = "",
+    ) -> dict[str, object]:
+        self._ensure_governance_state()
+        if self.database is None:
+            raise ValueError("database is required for adapter control")
+        document = self._adapter_document(adapter_id)
+        if action == "authorize":
+            document["explicitly_authorized"] = bool(explicitly_authorized)
+        elif action == "activate":
+            document["enabled"] = bool(enabled if enabled is not None else True)
+        elif action == "set_mode":
+            document["data_mode"] = DataMode(data_mode or document["data_mode"]).value
+        else:
+            raise ValueError(f"unsupported adapter action: {action}")
+        evaluated = self._evaluated_adapter_document(document)
+        self.database.save_document("adapter_manifests", adapter_id, evaluated)
+        self._append_timeline(
+            "adapter_control",
+            f"Adapter {evaluated['name']} updated via {action}.",
+            {"adapter_id": adapter_id, "status": evaluated["status"]},
+        )
+        return {"adapter": evaluated}
+
     def simulation_dashboard_document(self) -> dict[str, object]:
         library = self.simulation_library_document()["simulation_scenarios"]
         runs = self.simulation_runs_document()["simulation_runs"]
@@ -1170,6 +1442,411 @@ class JINXApplicationService:
 
     def _licensed_module_names(self) -> frozenset[str]:
         return frozenset(module["name"] for module in self.module_boundary_document()["modules"])
+
+    def _ensure_governance_state(self) -> None:
+        if self.database is None:
+            return
+        if self.database.count("identity_users") == 0:
+            for document in self._default_identity_user_documents():
+                self.database.save_document("identity_users", document["id"], document)
+        if self.database.count("package_licenses") == 0:
+            for document in self._default_package_license_documents():
+                self.database.save_document("package_licenses", document["package"], document)
+        if self.database.count("adapter_manifests") == 0:
+            for document in self._default_adapter_documents():
+                self.database.save_document("adapter_manifests", document["id"], document)
+
+    def _default_identity_user_documents(self) -> tuple[dict[str, object], ...]:
+        now = datetime.now(UTC).isoformat()
+        return (
+            {
+                "id": "user-systemadministrator",
+                "username": "systemadministrator",
+                "display_name": "System Administrator",
+                "roles": ["system_administrator"],
+                "default_package": "full",
+                "reporter_id": "systemadministrator",
+                "device_id": "jinx-admin-console",
+                "active": True,
+                "updated_at": now,
+            },
+            {
+                "id": "user-c5isr-manager-alpha",
+                "username": "c5isr-manager-alpha",
+                "display_name": "C5ISR Manager Alpha",
+                "roles": ["c5isr_manager"],
+                "default_package": "c5isr",
+                "reporter_id": "c5isr-manager-alpha",
+                "device_id": "jinx-c5isr-console",
+                "active": True,
+                "updated_at": now,
+            },
+            {
+                "id": "user-net-manager-alpha",
+                "username": "net-manager-alpha",
+                "display_name": "NET Manager Alpha",
+                "roles": ["network_manager"],
+                "default_package": "net",
+                "reporter_id": "net-manager-alpha",
+                "device_id": "jinx-net-console",
+                "active": True,
+                "updated_at": now,
+            },
+            {
+                "id": "user-intel-alpha",
+                "username": "intel-alpha",
+                "display_name": "INTEL Analyst Alpha",
+                "roles": ["intel_analyst"],
+                "default_package": "intel",
+                "reporter_id": "intel-alpha",
+                "device_id": "jinx-intel-console",
+                "active": True,
+                "updated_at": now,
+            },
+            {
+                "id": "user-sim-operator-alpha",
+                "username": "sim-operator-alpha",
+                "display_name": "Simulation Operator Alpha",
+                "roles": ["simulation_operator"],
+                "default_package": "sim",
+                "reporter_id": "sim-operator-alpha",
+                "device_id": "jinx-sim-console",
+                "active": True,
+                "updated_at": now,
+            },
+            {
+                "id": "user-operator-alpha",
+                "username": "operator-alpha",
+                "display_name": "Operator Alpha",
+                "roles": ["operator"],
+                "default_package": "operator",
+                "reporter_id": "operator-alpha",
+                "device_id": "operator-mini-001",
+                "active": True,
+                "updated_at": now,
+            },
+            {
+                "id": "user-auditor-alpha",
+                "username": "auditor-alpha",
+                "display_name": "Auditor Alpha",
+                "roles": ["auditor"],
+                "default_package": "full",
+                "reporter_id": "auditor-alpha",
+                "device_id": "jinx-audit-console",
+                "active": True,
+                "updated_at": now,
+            },
+        )
+
+    def _default_package_license_documents(self) -> tuple[dict[str, object], ...]:
+        now = datetime.now(UTC).isoformat()
+        return (
+            {
+                "package": "full",
+                "label": "Full JINX Package",
+                "modules": ["core", "brain", "c5isr", "net", "intel", "sim", "bus"],
+                "apps": ["/apps/ops", "/apps/c5isr", "/apps/net", "/apps/intel", "/apps/sim", "/apps/operator"],
+                "active": True,
+                "authorized_users": ["systemadministrator", "auditor-alpha", "c5isr-manager-alpha"],
+                "simulation_only": True,
+                "controlled_real_adapters_enabled": False,
+                "notes": "Synthetic, shadow-mode, and administrative use only.",
+                "updated_at": now,
+            },
+            {
+                "package": "c5isr",
+                "label": "JINX-C5ISR Package",
+                "modules": ["core", "brain", "c5isr", "sim", "bus"],
+                "apps": ["/apps/c5isr"],
+                "active": True,
+                "authorized_users": ["systemadministrator", "c5isr-manager-alpha"],
+                "simulation_only": True,
+                "controlled_real_adapters_enabled": False,
+                "notes": "C5ISR advisory surface only.",
+                "updated_at": now,
+            },
+            {
+                "package": "net",
+                "label": "JINX-NET Package",
+                "modules": ["core", "brain", "net", "sim", "bus"],
+                "apps": ["/apps/net"],
+                "active": True,
+                "authorized_users": ["systemadministrator", "net-manager-alpha"],
+                "simulation_only": True,
+                "controlled_real_adapters_enabled": False,
+                "notes": "NET advisory and synthetic validation only.",
+                "updated_at": now,
+            },
+            {
+                "package": "intel",
+                "label": "JINX-INTEL Package",
+                "modules": ["core", "brain", "intel", "sim", "bus"],
+                "apps": ["/apps/intel"],
+                "active": True,
+                "authorized_users": ["systemadministrator", "intel-alpha"],
+                "simulation_only": True,
+                "controlled_real_adapters_enabled": False,
+                "notes": "INTEL contextualization only.",
+                "updated_at": now,
+            },
+            {
+                "package": "sim",
+                "label": "JINX-SIM Package",
+                "modules": ["core", "brain", "sim", "bus"],
+                "apps": ["/apps/sim"],
+                "active": True,
+                "authorized_users": ["systemadministrator", "sim-operator-alpha", "c5isr-manager-alpha"],
+                "simulation_only": True,
+                "controlled_real_adapters_enabled": False,
+                "notes": "Scenario rehearsal and replay only.",
+                "updated_at": now,
+            },
+            {
+                "package": "operator",
+                "label": "JINX-Operator Mini Package",
+                "modules": ["core", "brain", "c5isr", "bus"],
+                "apps": ["/apps/operator"],
+                "active": True,
+                "authorized_users": ["systemadministrator", "operator-alpha"],
+                "simulation_only": True,
+                "controlled_real_adapters_enabled": False,
+                "notes": "Phone-first field reporting surface.",
+                "updated_at": now,
+            },
+        )
+
+    def _default_adapter_documents(self) -> tuple[dict[str, object], ...]:
+        now = datetime.now(UTC).isoformat()
+        return (
+            {
+                "id": "adapter-sim-feed",
+                "name": "SIM Feed Orchestrator",
+                "adapter_type": "simulation_feed",
+                "target_module": "jinx-sim",
+                "permission": "audit:write",
+                "data_mode": DataMode.SYNTHETIC.value,
+                "safety_classification": SafetyClassification.SIMULATION.value,
+                "supports_simulation": True,
+                "explicitly_authorized": False,
+                "enabled": True,
+                "status": "enabled",
+                "notes": "Primary simulation event source.",
+                "updated_at": now,
+            },
+            {
+                "id": "adapter-weather-open",
+                "name": "Open Weather Context Stub",
+                "adapter_type": "weather",
+                "target_module": "jinx-intel",
+                "permission": "mock_adapter:read",
+                "data_mode": DataMode.OPEN.value,
+                "safety_classification": SafetyClassification.MOCK_ADAPTER.value,
+                "supports_simulation": True,
+                "explicitly_authorized": False,
+                "enabled": False,
+                "status": "available",
+                "notes": "Open-source weather placeholder.",
+                "updated_at": now,
+            },
+            {
+                "id": "adapter-geospatial-mock",
+                "name": "Geospatial COP Stub",
+                "adapter_type": "geospatial",
+                "target_module": "jinx-c5isr",
+                "permission": "mock_adapter:read",
+                "data_mode": DataMode.MOCK.value,
+                "safety_classification": SafetyClassification.MOCK_ADAPTER.value,
+                "supports_simulation": True,
+                "explicitly_authorized": False,
+                "enabled": False,
+                "status": "available",
+                "notes": "Synthetic map and route overlay source.",
+                "updated_at": now,
+            },
+            {
+                "id": "adapter-network-plan",
+                "name": "Network Plan File Stub",
+                "adapter_type": "file",
+                "target_module": "jinx-net",
+                "permission": "mock_adapter:read",
+                "data_mode": DataMode.SYNTHETIC.value,
+                "safety_classification": SafetyClassification.MOCK_ADAPTER.value,
+                "supports_simulation": True,
+                "explicitly_authorized": False,
+                "enabled": False,
+                "status": "available",
+                "notes": "Synthetic network plan ingest path.",
+                "updated_at": now,
+            },
+            {
+                "id": "adapter-intel-summary",
+                "name": "INTEL Summary Stub",
+                "adapter_type": "intel_stub",
+                "target_module": "jinx-intel",
+                "permission": "mock_adapter:read",
+                "data_mode": DataMode.SYNTHETIC.value,
+                "safety_classification": SafetyClassification.MOCK_ADAPTER.value,
+                "supports_simulation": True,
+                "explicitly_authorized": False,
+                "enabled": False,
+                "status": "available",
+                "notes": "Synthetic intelligence summary adapter.",
+                "updated_at": now,
+            },
+            {
+                "id": "adapter-file-core",
+                "name": "Controlled File Ingest",
+                "adapter_type": "file",
+                "target_module": "jinx-core",
+                "permission": "audit:write",
+                "data_mode": DataMode.AUTHORIZED.value,
+                "safety_classification": SafetyClassification.MOCK_ADAPTER.value,
+                "supports_simulation": True,
+                "explicitly_authorized": False,
+                "enabled": False,
+                "status": "available",
+                "notes": "Authorized file ingest placeholder with audit logging.",
+                "updated_at": now,
+            },
+            {
+                "id": "adapter-radio-bridge",
+                "name": "Radio Bridge Controlled Plugin",
+                "adapter_type": "radio_stub",
+                "target_module": "jinx-core",
+                "permission": "policy:evaluate",
+                "data_mode": DataMode.LIVE_CONTROLLED_ADAPTER.value,
+                "safety_classification": SafetyClassification.CONTROLLED_REAL_ADAPTER.value,
+                "supports_simulation": True,
+                "explicitly_authorized": False,
+                "enabled": False,
+                "status": "blocked",
+                "notes": "Disabled by default; requires explicit authorization and controlled plugin review.",
+                "updated_at": now,
+            },
+            {
+                "id": "adapter-isr-live-gateway",
+                "name": "ISR Live Gateway Stub",
+                "adapter_type": "api",
+                "target_module": "jinx-core",
+                "permission": "policy:evaluate",
+                "data_mode": DataMode.LIVE_CONTROLLED_ADAPTER.value,
+                "safety_classification": SafetyClassification.CONTROLLED_REAL_ADAPTER.value,
+                "supports_simulation": True,
+                "explicitly_authorized": False,
+                "enabled": False,
+                "status": "blocked",
+                "notes": "Controlled adapter placeholder only; real integrations remain disabled.",
+                "updated_at": now,
+            },
+        )
+
+    def _identity_user_by_username(self, username: str) -> dict[str, object]:
+        if self.database is None:
+            raise KeyError(f"user not found: {username}")
+        for document in self.database.list_documents("identity_users"):
+            if document.get("username") == username:
+                return document
+        raise KeyError(f"user not found: {username}")
+
+    def _permissions_for_roles(self, roles: tuple[str, ...]) -> frozenset[str]:
+        permissions: set[str] = set()
+        for role in roles:
+            role_document = self.access_control.roles.get(role)
+            if role_document is not None:
+                permissions.update(role_document.permissions)
+        return frozenset(permissions)
+
+    def _package_license_for(self, package: str) -> dict[str, object]:
+        if self.database is None:
+            return {
+                "package": package,
+                "active": False,
+                "authorized_users": [],
+                "simulation_only": True,
+                "controlled_real_adapters_enabled": False,
+            }
+        try:
+            return self.database.get_document("package_licenses", package)
+        except KeyError:
+            return {
+                "package": package,
+                "active": False,
+                "authorized_users": [],
+                "simulation_only": True,
+                "controlled_real_adapters_enabled": False,
+            }
+
+    def package_license_allows(self, package: str, username: str = "") -> bool:
+        self._ensure_governance_state()
+        document = self._package_license_for(package)
+        if not document.get("active", False):
+            return False
+        allowed_users = set(str(item) for item in document.get("authorized_users", ()))
+        if not username:
+            return True
+        return "*" in allowed_users or username in allowed_users
+
+    def _boundary_policy_for_package(self, package: str) -> dict[str, object]:
+        policy_map = {
+            "full": {
+                "denied_permission_prefixes": (),
+                "summary": "Full package receives all licensed advisory surfaces.",
+            },
+            "c5isr": {
+                "denied_permission_prefixes": ("net:", "intel:", "isr:", "ops:"),
+                "summary": "C5ISR package hides NET and INTEL domains outside approved abstractions.",
+            },
+            "net": {
+                "denied_permission_prefixes": ("operator_report:", "cop:", "mission:", "intel:", "isr:", "human_command:", "ops:"),
+                "summary": "NET package sees communications-domain workflows only.",
+            },
+            "intel": {
+                "denied_permission_prefixes": ("operator_report:", "cop:", "mission:", "net:", "human_command:", "ops:"),
+                "summary": "INTEL package exposes contextualization without COP or NET management surfaces.",
+            },
+            "sim": {
+                "denied_permission_prefixes": ("operator_report:", "cop:", "mission:", "intel:", "isr:", "net:", "human_command:", "ops:"),
+                "summary": "SIM package keeps replay control separate from operational surfaces.",
+            },
+            "operator": {
+                "denied_permission_prefixes": ("cop:", "mission:", "intel:", "isr:", "net:", "ops:", "audit:", "human_command:", "operator_report:review", "sim:"),
+                "summary": "Operator Mini receives a compact local COP and advisory lane only.",
+            },
+        }
+        return policy_map.get(package, {"denied_permission_prefixes": (), "summary": "No package boundary policy defined."})
+
+    def _adapter_document(self, adapter_id: str) -> dict[str, object]:
+        if self.database is None:
+            raise KeyError(f"adapter not found: {adapter_id}")
+        return self.database.get_document("adapter_manifests", adapter_id)
+
+    def _evaluated_adapter_document(self, document: dict[str, object]) -> dict[str, object]:
+        manifest = AdapterManifest(
+            name=str(document["name"]),
+            permission=str(document["permission"]),
+            data_mode=DataMode(str(document["data_mode"])),
+            safety_classification=SafetyClassification(str(document["safety_classification"])),
+            supports_simulation=bool(document.get("supports_simulation", True)),
+            explicitly_authorized=bool(document.get("explicitly_authorized", False)),
+        )
+        gate_allowed = self.adapter_gate.may_activate(manifest)
+        policy = self.router._policy_engine.may_use_adapter(
+            module_name=str(document["target_module"]),
+            adapter_permission=str(document["permission"]),
+            data_mode=manifest.data_mode,
+        )
+        evaluated = dict(document)
+        evaluated["gate_allowed"] = gate_allowed
+        evaluated["policy_allowed"] = policy.allowed
+        evaluated["policy_reason"] = policy.reason
+        if not evaluated.get("enabled", False):
+            evaluated["status"] = "available" if gate_allowed and policy.allowed else "blocked"
+        else:
+            evaluated["status"] = "enabled" if gate_allowed and policy.allowed else "blocked"
+            if not gate_allowed or not policy.allowed:
+                evaluated["enabled"] = False
+        evaluated["updated_at"] = datetime.now(UTC).isoformat()
+        return evaluated
 
     @staticmethod
     def _brain_context_document(context: BoundedBrainContext) -> dict[str, object]:

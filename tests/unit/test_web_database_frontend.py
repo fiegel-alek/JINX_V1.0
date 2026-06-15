@@ -243,6 +243,53 @@ class WebDatabaseFrontendTests(TestCase):
             self.assertEqual(database.count("cop_advisories"), 1)
             self.assertEqual(len(brain_thread["messages"]), 1)
 
+    def test_identity_licenses_and_adapters_are_persisted_and_governed(self) -> None:
+        with TemporaryDirectory() as tmp:
+            database = SQLiteJINXDatabase(Path(tmp) / "jinx.sqlite3")
+            service = JINXApplicationService(database=database)
+
+            identity = service.identity_users_document()["identity"]
+            session = service.issue_auth_session("systemadministrator", "full")["session"]
+            service.register_identity_user(
+                username="adapter-admin-alpha",
+                display_name="Adapter Admin Alpha",
+                roles=("system_administrator",),
+                default_package="full",
+            )
+            license_document = service.upsert_package_license(
+                package="net",
+                active=False,
+                authorized_users=("systemadministrator",),
+                notes="Temporarily disabled for test.",
+            )["license"]
+            service.update_adapter_state(
+                adapter_id="adapter-weather-open",
+                action="activate",
+                enabled=True,
+            )
+            service.update_adapter_state(
+                adapter_id="adapter-radio-bridge",
+                action="authorize",
+                explicitly_authorized=True,
+            )
+            live_adapter = service.update_adapter_state(
+                adapter_id="adapter-radio-bridge",
+                action="activate",
+                enabled=True,
+            )["adapter"]
+
+            self.assertGreaterEqual(len(identity["users"]), 7)
+            self.assertEqual(session["package"], "full")
+            self.assertFalse(service.package_license_allows("net", "net-manager-alpha"))
+            self.assertEqual(license_document["package"], "net")
+            self.assertEqual(live_adapter["status"], "enabled")
+            self.assertTrue(live_adapter["explicitly_authorized"])
+            self.assertGreaterEqual(database.count("auth_sessions"), 1)
+            self.assertGreaterEqual(database.count("package_licenses"), 6)
+            self.assertGreaterEqual(database.count("adapter_manifests"), 8)
+            self.assertTrue(service.boundary_controls_document()["boundary_controls"]["packages"])
+            self.assertTrue(service.adapter_registry_document()["adapters"])
+
     def test_api_handler_validates_cop_track(self) -> None:
         with TemporaryDirectory() as tmp:
             database = SQLiteJINXDatabase(Path(tmp) / "jinx.sqlite3")
@@ -298,6 +345,12 @@ class WebDatabaseFrontendTests(TestCase):
         self.assertIn("/api/core/ops-console", (static_root / "app.js").read_text(encoding="utf-8"))
         self.assertIn("/api/core/operator-loop", (static_root / "app.js").read_text(encoding="utf-8"))
         self.assertIn("/api/core/fabric", (static_root / "app.js").read_text(encoding="utf-8"))
+        self.assertIn("/api/auth/login", (static_root / "app.js").read_text(encoding="utf-8"))
+        self.assertIn("/api/auth/session", (static_root / "app.js").read_text(encoding="utf-8"))
+        self.assertIn("/api/admin/users", (static_root / "app.js").read_text(encoding="utf-8"))
+        self.assertIn("/api/admin/licenses", (static_root / "app.js").read_text(encoding="utf-8"))
+        self.assertIn("/api/admin/adapters", (static_root / "app.js").read_text(encoding="utf-8"))
+        self.assertIn("/api/core/boundary-controls", (static_root / "app.js").read_text(encoding="utf-8"))
         self.assertIn("/api/core/policy-decisions", (static_root / "app.js").read_text(encoding="utf-8"))
         self.assertIn("/api/brain/query", (static_root / "app.js").read_text(encoding="utf-8"))
         self.assertIn("/api/brain/chat", (static_root / "app.js").read_text(encoding="utf-8"))
@@ -320,6 +373,12 @@ class WebDatabaseFrontendTests(TestCase):
         self.assertIn("Core Ops Console", (static_root / "index.html").read_text(encoding="utf-8"))
         self.assertIn("Operator Loop", (static_root / "index.html").read_text(encoding="utf-8"))
         self.assertIn("JINX-FABRIC Monitor", (static_root / "index.html").read_text(encoding="utf-8"))
+        self.assertIn("Identity / Session", (static_root / "index.html").read_text(encoding="utf-8"))
+        self.assertIn("Package Licenses", (static_root / "index.html").read_text(encoding="utf-8"))
+        self.assertIn("Identity Users", (static_root / "index.html").read_text(encoding="utf-8"))
+        self.assertIn("Boundary Controls", (static_root / "index.html").read_text(encoding="utf-8"))
+        self.assertIn("Adapter Registry", (static_root / "index.html").read_text(encoding="utf-8"))
+        self.assertIn("Adapter Control", (static_root / "index.html").read_text(encoding="utf-8"))
         self.assertIn("Dead Letters", (static_root / "index.html").read_text(encoding="utf-8"))
         self.assertIn("Bounded Core Context", (static_root / "index.html").read_text(encoding="utf-8"))
         self.assertIn("BRAIN Options", (static_root / "index.html").read_text(encoding="utf-8"))

@@ -20,6 +20,7 @@
           <a href="#cop">COP</a>
           <a href="#reports">Reports</a>
           <a href="#fabric">FABRIC</a>
+          <a href="#governance">Governance</a>
           <a href="#advisories">Advisories</a>
           <a href="#modules">Modules</a>
           <a href="#sim">SIM</a>
@@ -153,6 +154,196 @@
               <span id="fabric-dead-letter-count">0</span>
             </div>
             <div id="fabric-dead-letter-list" class="list empty">No dead letters</div>
+          </section>
+        </section>
+
+        <section class="data-grid two" id="governance">
+          <section class="panel">
+            <div class="section-head">
+              <h2>Identity / Session</h2>
+              <span id="auth-session-state">header-only</span>
+            </div>
+            <form id="auth-form" class="form">
+              <div class="form-grid">
+                <label>
+                  Username
+                  <input name="username" value="systemadministrator" required />
+                </label>
+                <label>
+                  Package
+                  <select name="package">
+                    <option value="full">Full</option>
+                    <option value="c5isr">C5ISR</option>
+                    <option value="net">NET</option>
+                    <option value="intel">INTEL</option>
+                    <option value="sim">SIM</option>
+                    <option value="operator">Operator</option>
+                  </select>
+                </label>
+                <label>
+                  Reporter
+                  <input name="reporter_id" value="systemadministrator" />
+                </label>
+                <label>
+                  Device
+                  <input name="device_id" value="jinx-admin-console" />
+                </label>
+              </div>
+              <div class="review-row">
+                <button type="submit">Issue Session</button>
+                <button id="clear-session-button" type="button">Clear Session</button>
+              </div>
+            </form>
+            <div id="auth-session-list" class="list empty">No active session token</div>
+          </section>
+
+          <section class="panel">
+            <div class="section-head">
+              <h2>Package Licenses</h2>
+              <span id="license-count">0</span>
+            </div>
+            <form id="license-form" class="form">
+              <div class="form-grid">
+                <label>
+                  Package
+                  <select name="package">
+                    <option value="full">Full</option>
+                    <option value="c5isr">C5ISR</option>
+                    <option value="net">NET</option>
+                    <option value="intel">INTEL</option>
+                    <option value="sim">SIM</option>
+                    <option value="operator">Operator</option>
+                  </select>
+                </label>
+                <label>
+                  Active
+                  <select name="active">
+                    <option value="true">True</option>
+                    <option value="false">False</option>
+                  </select>
+                </label>
+                <label>
+                  Real Adapter Path
+                  <select name="controlled_real_adapters_enabled">
+                    <option value="false">False</option>
+                    <option value="true">True</option>
+                  </select>
+                </label>
+                <label>
+                  Authorized Users
+                  <input name="authorized_users" value="systemadministrator" />
+                </label>
+              </div>
+              <label>
+                Notes
+                <textarea name="notes">Synthetic-only package license.</textarea>
+              </label>
+              <button type="submit">Save License</button>
+            </form>
+            <div id="license-list" class="list empty">No license records</div>
+          </section>
+        </section>
+
+        <section class="data-grid two">
+          <section class="panel">
+            <div class="section-head">
+              <h2>Identity Users</h2>
+              <span id="identity-user-count">0</span>
+            </div>
+            <form id="identity-user-form" class="form">
+              <div class="form-grid">
+                <label>
+                  Username
+                  <input name="username" value="ops-user-alpha" required />
+                </label>
+                <label>
+                  Display Name
+                  <input name="display_name" value="Ops User Alpha" required />
+                </label>
+                <label>
+                  Roles
+                  <input name="roles" value="operator" required />
+                </label>
+                <label>
+                  Default Package
+                  <select name="default_package">
+                    <option value="operator">Operator</option>
+                    <option value="c5isr">C5ISR</option>
+                    <option value="net">NET</option>
+                    <option value="intel">INTEL</option>
+                    <option value="sim">SIM</option>
+                    <option value="full">Full</option>
+                  </select>
+                </label>
+              </div>
+              <button type="submit">Register User</button>
+            </form>
+            <div id="identity-user-list" class="list empty">No identity users</div>
+          </section>
+
+          <section class="panel">
+            <div class="section-head">
+              <h2>Boundary Controls</h2>
+              <span id="boundary-control-count">0</span>
+            </div>
+            <div id="boundary-control-list" class="list empty">No boundary controls</div>
+          </section>
+        </section>
+
+        <section class="data-grid two">
+          <section class="panel">
+            <div class="section-head">
+              <h2>Adapter Registry</h2>
+              <span id="adapter-count">0</span>
+            </div>
+            <div id="adapter-list" class="list empty">No adapter manifests</div>
+          </section>
+          <section class="panel">
+            <div class="section-head">
+              <h2>Adapter Control</h2>
+              <span id="adapter-summary">governed</span>
+            </div>
+            <form id="adapter-form" class="form">
+              <div class="form-grid">
+                <label>
+                  Adapter ID
+                  <input name="adapter_id" value="adapter-weather-open" required />
+                </label>
+                <label>
+                  Action
+                  <select name="action">
+                    <option value="activate">Activate</option>
+                    <option value="authorize">Authorize</option>
+                    <option value="set_mode">Set Mode</option>
+                  </select>
+                </label>
+                <label>
+                  Enabled
+                  <select name="enabled">
+                    <option value="true">True</option>
+                    <option value="false">False</option>
+                  </select>
+                </label>
+                <label>
+                  Authorized
+                  <select name="explicitly_authorized">
+                    <option value="false">False</option>
+                    <option value="true">True</option>
+                  </select>
+                </label>
+                <label>
+                  Data Mode
+                  <select name="data_mode">
+                    <option value="synthetic">Synthetic</option>
+                    <option value="mock">Mock</option>
+                    <option value="open">Open</option>
+                    <option value="authorized">Authorized</option>
+                    <option value="live_controlled_adapter">Live Controlled Adapter</option>
+                  </select>
+                </label>
+              </div>
+              <button type="submit">Apply Adapter Update</button>
+            </form>
           </section>
         </section>
 

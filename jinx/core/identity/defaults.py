@@ -22,6 +22,7 @@ def build_default_access_control() -> AccessControl:
                     "advisory:review",
                     "operator_report:review",
                     "isr:read",
+                    "sim:read",
                 }
             ),
             description="Provides human command input and reviews advisories.",
@@ -46,6 +47,7 @@ def build_default_access_control() -> AccessControl:
                     "net:read",
                     "net:submit",
                     "net:review",
+                    "sim:read",
                     "sim:inject",
                     "sim:run",
                 }
@@ -54,7 +56,15 @@ def build_default_access_control() -> AccessControl:
         ),
         Role(
             name="operator",
-            permissions=frozenset({"brain:chat", "operator_report:submit", "cop_advisory:read", "ops:read"}),
+            permissions=frozenset(
+                {
+                    "brain:chat",
+                    "operator:read",
+                    "operator_report:submit",
+                    "cop_advisory:read",
+                    "ops:read",
+                }
+            ),
             description="Submits field reports and reads C5ISR advisories.",
         ),
         Role(
@@ -69,6 +79,7 @@ def build_default_access_control() -> AccessControl:
                     "net:submit",
                     "net:review",
                     "ops:read",
+                    "sim:read",
                     "sim:run",
                 }
             ),
@@ -92,8 +103,15 @@ def build_default_access_control() -> AccessControl:
         ),
         Role(
             name="auditor",
-            permissions=frozenset({"audit:read", "brain:chat", "brain:query", "ops:read", "provenance:read"}),
+            permissions=frozenset(
+                {"audit:read", "brain:chat", "brain:query", "ops:read", "provenance:read", "sim:read"}
+            ),
             description="Reviews audit and provenance trails.",
+        ),
+        Role(
+            name="simulation_operator",
+            permissions=frozenset({"brain:chat", "brain:query", "sim:read", "sim:inject", "sim:run"}),
+            description="Runs synthetic scenarios and simulation-only control workflows.",
         ),
     ):
         access.register_role(role)

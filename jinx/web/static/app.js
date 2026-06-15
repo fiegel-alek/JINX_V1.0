@@ -1,6 +1,11 @@
 const els = {
   apiStatus: document.querySelector("#api-status"),
   apiStatusText: document.querySelector("#api-status-text"),
+  authSessionList: document.querySelector("#auth-session-list"),
+  licenseList: document.querySelector("#license-list"),
+  identityUserList: document.querySelector("#identity-user-list"),
+  boundaryControlList: document.querySelector("#boundary-control-list"),
+  adapterList: document.querySelector("#adapter-list"),
   copName: document.querySelector("#cop-name"),
   copMap: document.querySelector("#cop-map"),
   trackList: document.querySelector("#track-list"),
@@ -41,6 +46,11 @@ const els = {
   netAdvisoryList: document.querySelector("#net-advisory-list"),
   moduleList: document.querySelector("#module-list"),
   activityList: document.querySelector("#activity-list"),
+  authForm: document.querySelector("#auth-form"),
+  clearSessionButton: document.querySelector("#clear-session-button"),
+  licenseForm: document.querySelector("#license-form"),
+  identityUserForm: document.querySelector("#identity-user-form"),
+  adapterForm: document.querySelector("#adapter-form"),
   reportForm: document.querySelector("#report-form"),
   commandForm: document.querySelector("#command-form"),
   intelForm: document.querySelector("#intel-form"),
@@ -63,6 +73,8 @@ const els = {
   },
 };
 
+const SESSION_KEY = "jinx-ops-session-token";
+
 function setStatus(ok, text) {
   els.apiStatus.classList.toggle("ok", ok);
   els.apiStatus.classList.toggle("error", !ok);
@@ -73,8 +85,15 @@ function activeRole() {
   return els.roleSelect.value;
 }
 
+function activeSessionToken() {
+  return localStorage.getItem(SESSION_KEY) || "";
+}
+
 function requestHeaders(extra = {}) {
-  return { "X-JINX-Role": activeRole(), ...extra };
+  const sessionToken = activeSessionToken();
+  return sessionToken
+    ? { "X-JINX-Role": activeRole(), "X-JINX-Session": sessionToken, ...extra }
+    : { "X-JINX-Role": activeRole(), ...extra };
 }
 
 async function getJSON(url) {
@@ -548,6 +567,80 @@ function renderFabric(fabric) {
     `${messages.length} total · ${counts.delivered || 0} delivered · ${counts.redacted || 0} redacted`;
 }
 
+function renderAuthSession(auth, entitlements) {
+  const session = auth.session;
+  document.querySelector("#auth-session-state").textContent = session ? session.package : "header-only";
+  if (!session) {
+    els.authSessionList.className = "list empty";
+    els.authSessionList.textContent = "No active session token";
+    return;
+  }
+  els.authSessionList.className = "list";
+  els.authSessionList.innerHTML = `
+    <article class="item ops">
+      <strong>${escapeHTML(session.display_name)} · ${escapeHTML(session.package)}</strong>
+      <span>${escapeHTML((session.roles || []).join(", "))} · ${escapeHTML(session.auth_mode)}</span>
+      <span>reporter ${escapeHTML(session.reporter_id)} · device ${escapeHTML(session.device_id)}</span>
+      <span>license ${entitlements.license_active ? "active" : "inactive"} · user authorized ${entitlements.authorized_for_user ? "yes" : "no"}</span>
+      <span>expires ${escapeHTML(session.expires_at)}</span>
+    </article>
+  `;
+}
+
+function renderLicenses(licenseState) {
+  const licenses = licenseState.licenses || [];
+  document.querySelector("#license-count").textContent = licenses.length;
+  renderList(els.licenseList, licenses, "No license records", (license) => `
+    <article class="item ops">
+      <strong>${escapeHTML(license.package)} · ${license.active ? "active" : "inactive"}</strong>
+      <span>${escapeHTML(license.label || "")}</span>
+      <span>users: ${escapeHTML((license.authorized_users || []).join(", ") || "none")}</span>
+      <span>simulation only ${license.simulation_only ? "yes" : "no"} · real adapters ${license.controlled_real_adapters_enabled ? "enabled" : "disabled"}</span>
+    </article>
+  `);
+}
+
+function renderIdentity(identity) {
+  const users = identity.users || [];
+  document.querySelector("#identity-user-count").textContent = users.length;
+  renderList(els.identityUserList, users, "No identity users", (user) => `
+    <article class="item ops">
+      <strong>${escapeHTML(user.display_name)} · ${escapeHTML(user.username)}</strong>
+      <span>${escapeHTML((user.roles || []).join(", "))} · package ${escapeHTML(user.default_package || "operator")}</span>
+      <span>reporter ${escapeHTML(user.reporter_id || "n/a")} · device ${escapeHTML(user.device_id || "n/a")}</span>
+    </article>
+  `);
+}
+
+function renderBoundaryControls(boundaryControls) {
+  const packages = boundaryControls.packages || [];
+  document.querySelector("#boundary-control-count").textContent = packages.length;
+  renderList(els.boundaryControlList, packages, "No boundary controls", (policy) => `
+    <article class="item boundary">
+      <strong>${escapeHTML(policy.package)} · ${policy.active ? "active" : "inactive"}</strong>
+      <span>${escapeHTML(policy.summary)}</span>
+      <span>denies: ${escapeHTML((policy.denied_permission_prefixes || []).join(", ") || "none")}</span>
+      <span>users: ${escapeHTML((policy.authorized_users || []).join(", ") || "none")}</span>
+    </article>
+  `);
+}
+
+function renderAdapters(adapterState) {
+  const adapters = adapterState.adapters || [];
+  const summary = adapterState.summary || {};
+  document.querySelector("#adapter-count").textContent = adapters.length;
+  document.querySelector("#adapter-summary").textContent =
+    `${summary.enabled || 0} enabled · ${summary.blocked || 0} blocked`;
+  renderList(els.adapterList, adapters, "No adapter manifests", (adapter) => `
+    <article class="item ops">
+      <strong>${escapeHTML(adapter.name)} · ${escapeHTML(adapter.status)}</strong>
+      <span>${escapeHTML(adapter.adapter_type)} · ${escapeHTML(adapter.target_module)} · ${escapeHTML(adapter.data_mode)}</span>
+      <span>permission ${escapeHTML(adapter.permission)} · gate ${adapter.gate_allowed ? "allow" : "deny"} · policy ${adapter.policy_allowed ? "allow" : "deny"}</span>
+      <span>${escapeHTML(adapter.policy_reason || "")}</span>
+    </article>
+  `);
+}
+
 function renderCoreContext(context) {
   document.querySelector("#core-context-count").textContent = (context.provenance_refs || []).length;
   renderList(els.coreContextList, [context], "No bounded context", (record) => `
@@ -631,6 +724,12 @@ async function refreshDashboard() {
   try {
     const [
       health,
+      entitlements,
+      authSession,
+      identity,
+      licenseState,
+      boundaryControls,
+      adapters,
       cop,
       mission,
       layers,
@@ -668,6 +767,12 @@ async function refreshDashboard() {
       modules,
     ] = await Promise.all([
       getJSON("/api/health"),
+      getJSON("/api/entitlements"),
+      getJSON("/api/auth/session"),
+      getOptionalJSON("/api/admin/users", { identity: { users: [], roles: [], active_session_count: 0 } }),
+      getOptionalJSON("/api/admin/licenses", { licenses: [], summary: {} }),
+      getOptionalJSON("/api/core/boundary-controls", { boundary_controls: { packages: [], recent_redactions: [], recent_policy_denials: [] } }),
+      getOptionalJSON("/api/admin/adapters", { adapters: [], summary: {} }),
       getJSON("/api/cop"),
       getJSON("/api/mission-context"),
       getJSON("/api/cop/layers"),
@@ -705,6 +810,11 @@ async function refreshDashboard() {
       getJSON("/api/modules"),
     ]);
     setStatus(true, `${health.service} API online`);
+    renderAuthSession(authSession, entitlements);
+    renderIdentity(identity.identity || {});
+    renderLicenses(licenseState);
+    renderBoundaryControls(boundaryControls.boundary_controls || {});
+    renderAdapters(adapters);
     renderTracks(cop);
     renderMission(mission.mission);
     renderLayers(layers.layers || []);
@@ -825,6 +935,61 @@ els.brainChatForm.addEventListener("submit", async (event) => {
   try {
     const response = await postJSON("/api/brain/chat", data);
     addActivity(`BRAIN answered ${response.answer.id} with ${response.answer.confidence_band} confidence.`);
+    await refreshDashboard();
+  } catch (error) {
+    addActivity(error.message);
+  }
+});
+
+els.authForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const data = Object.fromEntries(new FormData(els.authForm).entries());
+  try {
+    const response = await postJSON("/api/auth/login", data);
+    localStorage.setItem(SESSION_KEY, response.session.id);
+    addActivity(`Session ${response.session.id} issued for ${response.session.username}.`);
+    await refreshDashboard();
+  } catch (error) {
+    addActivity(error.message);
+  }
+});
+
+els.clearSessionButton.addEventListener("click", async () => {
+  localStorage.removeItem(SESSION_KEY);
+  addActivity("Session token cleared; using header-only role mode.");
+  await refreshDashboard();
+});
+
+els.licenseForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const data = Object.fromEntries(new FormData(els.licenseForm).entries());
+  try {
+    const response = await postJSON("/api/admin/licenses", data);
+    addActivity(`License ${response.license.package} updated.`);
+    await refreshDashboard();
+  } catch (error) {
+    addActivity(error.message);
+  }
+});
+
+els.identityUserForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const data = Object.fromEntries(new FormData(els.identityUserForm).entries());
+  try {
+    const response = await postJSON("/api/admin/users", data);
+    addActivity(`Identity user ${response.user.username} saved.`);
+    await refreshDashboard();
+  } catch (error) {
+    addActivity(error.message);
+  }
+});
+
+els.adapterForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const data = Object.fromEntries(new FormData(els.adapterForm).entries());
+  try {
+    const response = await postJSON("/api/admin/adapters", data);
+    addActivity(`Adapter ${response.adapter.id} updated to ${response.adapter.status}.`);
     await refreshDashboard();
   } catch (error) {
     addActivity(error.message);

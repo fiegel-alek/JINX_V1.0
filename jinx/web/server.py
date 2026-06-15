@@ -124,7 +124,8 @@ class JINXHTTPServer(ThreadingHTTPServer):
         bind_and_activate: bool = True,
     ) -> None:
         self.database = database
-        self.api_handlers = JINXAPIHandlers(JINXApplicationService(database=database))
+        self.service = JINXApplicationService(database=database)
+        self.api_handlers = JINXAPIHandlers(self.service)
         handler = partial(JINXRequestHandler, directory=str(static_root))
         super().__init__(server_address, handler, bind_and_activate=bind_and_activate)
 
@@ -145,7 +146,39 @@ class JINXRequestHandler(SimpleHTTPRequestHandler):
                 return
             if parsed.path == "/api/entitlements":
                 package = self._package()
-                self._send_json({"package": package, **PACKAGE_PROFILES[package]})
+                session = self._current_session()
+                entitlement = self.server.service.entitlement_document(
+                    package,
+                    username=session.get("username", "") if session else "",
+                    session_id=session.get("id", "") if session else "",
+                )["entitlement"]
+                self._send_json({"package": package, **PACKAGE_PROFILES[package], **entitlement, "session": session})
+                return
+            if parsed.path == "/api/auth/session":
+                session = self._current_session()
+                self._send_json(
+                    {
+                        "session": session,
+                        "context": {
+                            "role": self._role(),
+                            "package": self._package(),
+                            "reporter_id": self._reporter_id(),
+                            "device_id": self._device_id(),
+                        },
+                    }
+                )
+                return
+            if parsed.path == "/api/admin/users":
+                self._require_permission("admin:all")
+                self._send_json(self.server.api_handlers.identity_users())
+                return
+            if parsed.path == "/api/admin/licenses":
+                self._require_permission("admin:all")
+                self._send_json(self.server.api_handlers.package_licenses())
+                return
+            if parsed.path == "/api/admin/adapters":
+                self._require_permission("admin:all")
+                self._send_json(self.server.api_handlers.adapters())
                 return
             if parsed.path == "/api/cop":
                 self._require_permission("cop:read")
@@ -249,6 +282,10 @@ class JINXRequestHandler(SimpleHTTPRequestHandler):
             if parsed.path == "/api/core/module-boundaries":
                 self._require_permission("audit:read")
                 self._send_json(self.server.api_handlers.service.module_boundary_document())
+                return
+            if parsed.path == "/api/core/boundary-controls":
+                self._require_permission("audit:read")
+                self._send_json(self.server.api_handlers.boundary_controls())
                 return
             if parsed.path == "/api/brain/references":
                 self._require_permission("brain:query")
@@ -393,6 +430,21 @@ class JINXRequestHandler(SimpleHTTPRequestHandler):
         parsed = urlparse(self.path)
         try:
             payload = self._read_json()
+            if parsed.path == "/api/auth/login":
+                self._send_json(self.server.api_handlers.login_auth_session(payload), status=201)
+                return
+            if parsed.path == "/api/admin/users":
+                self._require_permission("admin:all")
+                self._send_json(self.server.api_handlers.register_identity_user(payload), status=201)
+                return
+            if parsed.path == "/api/admin/licenses":
+                self._require_permission("admin:all")
+                self._send_json(self.server.api_handlers.upsert_package_license(payload), status=200)
+                return
+            if parsed.path == "/api/admin/adapters":
+                self._require_permission("admin:all")
+                self._send_json(self.server.api_handlers.update_adapter(payload), status=200)
+                return
             if parsed.path == "/api/operator-reports":
                 self._require_permission("operator_report:submit")
                 self._send_json(self.server.api_handlers.submit_operator_report(payload), status=201)
@@ -496,21 +548,36 @@ class JINXRequestHandler(SimpleHTTPRequestHandler):
         self.wfile.write(body)
 
     def _role(self) -> str:
+        session = self._current_session()
+        if session:
+            roles = session.get("roles", [])
+            if roles:
+                return str(roles[0])
         return self.headers.get("X-JINX-Role", "operator")
 
     def _package(self) -> str:
+        session = self._current_session()
+        if session:
+            package = str(session.get("package", "full"))
+            return package if package in PACKAGE_PROFILES else "full"
         package = self.headers.get("X-JINX-Package", "full")
         return package if package in PACKAGE_PROFILES else "full"
 
     def _reporter_id(self) -> str:
+        session = self._current_session()
+        if session:
+            return str(session.get("reporter_id", "operator-alpha"))
         return self.headers.get("X-JINX-Reporter", "operator-alpha")
 
     def _device_id(self) -> str:
+        session = self._current_session()
+        if session:
+            return str(session.get("device_id", "operator-mini-001"))
         return self.headers.get("X-JINX-Device", "operator-mini-001")
 
     def _require_permission(self, permission: str) -> None:
         role = self._role()
-        permissions = ROLE_PERMISSIONS.get(role, frozenset())
+        permissions = self._context_permissions()
         if "admin:all" in permissions or permission in permissions:
             if self._package_allows(permission):
                 return
@@ -529,7 +596,34 @@ class JINXRequestHandler(SimpleHTTPRequestHandler):
 
     def _package_allows(self, permission: str) -> bool:
         denied_prefixes = PACKAGE_PERMISSION_PREFIXES[self._package()]
-        return not any(permission.startswith(prefix) for prefix in denied_prefixes)
+        if any(permission.startswith(prefix) for prefix in denied_prefixes):
+            return False
+        if not hasattr(self, "server") or not hasattr(self.server, "service"):
+            return True
+        session = self._current_session()
+        username = str(session.get("username", "")) if session else ""
+        return self.server.service.package_license_allows(self._package(), username)
+
+    def _session_token(self) -> str:
+        return self.headers.get("X-JINX-Session", "")
+
+    def _current_session(self) -> dict[str, Any] | None:
+        token = self._session_token()
+        if not token:
+            return None
+        if not hasattr(self, "server") or not hasattr(self.server, "service"):
+            return None
+        session = self.server.service.auth_session_document(token).get("session")
+        if not session or session.get("status") != "active":
+            return None
+        return session
+
+    def _context_permissions(self) -> frozenset[str]:
+        session = self._current_session()
+        if session:
+            return frozenset(str(item) for item in session.get("permissions", ()))
+        role = self.headers.get("X-JINX-Role", "operator")
+        return ROLE_PERMISSIONS.get(role, frozenset())
 
     @staticmethod
     def _app_path(path: str) -> str | None:

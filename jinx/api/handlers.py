@@ -217,6 +217,62 @@ class JINXAPIHandlers:
     def operator_brain_thread(self, reporter_id: str) -> dict[str, object]:
         return self.service.operator_brain_thread_document(reporter_id)
 
+    def identity_users(self) -> dict[str, object]:
+        return self.service.identity_users_document()
+
+    def register_identity_user(self, payload: dict[str, str]) -> dict[str, object]:
+        return self.service.register_identity_user(
+            username=payload["username"],
+            display_name=payload["display_name"],
+            roles=self._csv_tuple(payload["roles"]),
+            default_package=payload.get("default_package", "operator"),
+            reporter_id=payload.get("reporter_id", ""),
+            device_id=payload.get("device_id", ""),
+        )
+
+    def login_auth_session(self, payload: dict[str, str]) -> dict[str, object]:
+        return self.service.issue_auth_session(
+            username=payload["username"],
+            package=payload.get("package", "full"),
+            reporter_id=payload.get("reporter_id", ""),
+            device_id=payload.get("device_id", ""),
+        )
+
+    def auth_session(self, session_id: str = "") -> dict[str, object]:
+        return self.service.auth_session_document(session_id)
+
+    def package_licenses(self) -> dict[str, object]:
+        return self.service.license_state_document()
+
+    def upsert_package_license(self, payload: dict[str, str]) -> dict[str, object]:
+        return self.service.upsert_package_license(
+            package=payload["package"],
+            active=payload.get("active", "true").lower() == "true",
+            authorized_users=self._csv_tuple(payload.get("authorized_users", "")),
+            notes=payload.get("notes", ""),
+            controlled_real_adapters_enabled=payload.get(
+                "controlled_real_adapters_enabled", "false"
+            ).lower()
+            == "true",
+        )
+
+    def boundary_controls(self) -> dict[str, object]:
+        return self.service.boundary_controls_document()
+
+    def adapters(self) -> dict[str, object]:
+        return self.service.adapter_registry_document()
+
+    def update_adapter(self, payload: dict[str, str]) -> dict[str, object]:
+        return self.service.update_adapter_state(
+            adapter_id=payload["adapter_id"],
+            action=payload["action"],
+            explicitly_authorized=payload.get("explicitly_authorized", "").lower() == "true"
+            if "explicitly_authorized" in payload
+            else None,
+            enabled=payload.get("enabled", "").lower() == "true" if "enabled" in payload else None,
+            data_mode=payload.get("data_mode", ""),
+        )
+
     def run_c5isr_scenario(self, payload: dict[str, str]) -> dict[str, object]:
         return self.service.run_c5isr_scenario_pack(payload.get("scenario_id", "default"))
 
