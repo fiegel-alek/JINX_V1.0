@@ -363,6 +363,54 @@
               <h2>Review Tasks</h2>
               <span id="review-task-count">0</span>
             </div>
+            <form id="review-task-filter-form" class="form compact-form">
+              <div class="form-grid">
+                <label>
+                  Package
+                  <select name="package_scope">
+                    <option value="">All</option>
+                    <option value="full">Full</option>
+                    <option value="c5isr">C5ISR</option>
+                    <option value="net">NET</option>
+                    <option value="intel">INTEL</option>
+                    <option value="sim">SIM</option>
+                    <option value="operator">Operator</option>
+                  </select>
+                </label>
+                <label>
+                  State
+                  <select name="state">
+                    <option value="">All</option>
+                    <option value="new">New</option>
+                    <option value="acknowledged">Acknowledged</option>
+                    <option value="needs_more_info">Needs info</option>
+                    <option value="validated">Validated</option>
+                    <option value="rejected">Rejected</option>
+                  </select>
+                </label>
+                <label>
+                  Role
+                  <select name="assigned_role">
+                    <option value="">All</option>
+                    <option value="c5isr_manager">C5ISR</option>
+                    <option value="network_manager">NET</option>
+                    <option value="intel_analyst">INTEL</option>
+                    <option value="system_administrator">Admin</option>
+                  </select>
+                </label>
+                <label>
+                  Escalation
+                  <select name="escalation_state">
+                    <option value="">All</option>
+                    <option value="none">None</option>
+                    <option value="watch">Watch</option>
+                    <option value="elevated">Elevated</option>
+                    <option value="critical">Critical</option>
+                  </select>
+                </label>
+              </div>
+              <button type="submit">Filter Review Tasks</button>
+            </form>
             <div id="review-task-list" class="list empty">No review tasks</div>
           </section>
           <section class="panel">
@@ -515,6 +563,41 @@
                     <option value="sim">SIM</option>
                     <option value="operator">Operator</option>
                   </select>
+                </label>
+                <label>
+                  Kind
+                  <select name="kind">
+                    <option value="">All</option>
+                    <option value="review_task">Review task</option>
+                    <option value="evidence_pack">Evidence</option>
+                    <option value="memory_record">Memory</option>
+                    <option value="doctrine_record">Doctrine</option>
+                  </select>
+                </label>
+                <label>
+                  Task State
+                  <select name="state">
+                    <option value="">All</option>
+                    <option value="new">New</option>
+                    <option value="acknowledged">Acknowledged</option>
+                    <option value="needs_more_info">Needs info</option>
+                    <option value="validated">Validated</option>
+                    <option value="rejected">Rejected</option>
+                  </select>
+                </label>
+                <label>
+                  Assigned Role
+                  <select name="assigned_role">
+                    <option value="">All</option>
+                    <option value="c5isr_manager">C5ISR</option>
+                    <option value="network_manager">NET</option>
+                    <option value="intel_analyst">INTEL</option>
+                    <option value="system_administrator">Admin</option>
+                  </select>
+                </label>
+                <label>
+                  Limit
+                  <input name="limit" value="40" />
                 </label>
               </div>
               <button type="submit">Run Recall</button>
@@ -967,6 +1050,26 @@
                 <label>
                   Limit
                   <input name="limit" value="12" />
+                </label>
+                <label>
+                  Package
+                  <select name="package_scope">
+                    <option value="">All</option>
+                    <option value="full">Full</option>
+                    <option value="c5isr">C5ISR</option>
+                    <option value="net">NET</option>
+                    <option value="intel">INTEL</option>
+                    <option value="sim">SIM</option>
+                    <option value="operator">Operator</option>
+                  </select>
+                </label>
+                <label>
+                  Source Kind
+                  <input name="source_kind" value="" />
+                </label>
+                <label>
+                  Search
+                  <input name="query" value="" />
                 </label>
               </div>
               <button type="submit">Generate Replay</button>

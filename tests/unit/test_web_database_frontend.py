@@ -424,6 +424,83 @@ class WebDatabaseFrontendTests(TestCase):
             self.assertEqual(replay["audit_replay"]["focus_id"], report["report_id"])
             self.assertGreaterEqual(database.count("audit_replay_runs"), 1)
 
+    def test_sprint20_review_assignment_filters_and_replay_drilldown(self) -> None:
+        with TemporaryDirectory() as tmp:
+            database = SQLiteJINXDatabase(Path(tmp) / "jinx.sqlite3")
+            handlers = JINXAPIHandlers(JINXApplicationService(database=database))
+
+            handlers.submit_mission_context(
+                {
+                    "mission_statement": "Synthetic mission monitors Route Bravo.",
+                    "route": "Route Bravo",
+                    "named_area": "Area Bravo",
+                }
+            )
+            handlers.submit_operator_report(
+                {
+                    "reporter_id": "operator-alpha",
+                    "device_id": "operator-mini-001",
+                    "report_type": "hazard",
+                    "summary": "Synthetic route hazard reported near Route Bravo.",
+                    "location": "Route Bravo",
+                }
+            )
+            review_tasks = handlers.review_tasks()["review_tasks"]
+            task_id = review_tasks[0]["id"]
+
+            updated = handlers.update_review_task(
+                {
+                    "task_id": task_id,
+                    "state": "acknowledged",
+                    "reviewer_id": "systemadministrator",
+                    "assigned_role": "c5isr_manager",
+                    "assigned_reviewer": "c5isr-manager-alpha",
+                    "escalation_state": "watch",
+                    "priority": "high",
+                    "due_label": "This hour",
+                    "note": "Assigned and watched during Sprint 20 test.",
+                }
+            )["review_task"]
+            self.assertEqual(updated["assigned_role"], "c5isr_manager")
+            self.assertEqual(updated["assigned_reviewer"], "c5isr-manager-alpha")
+            self.assertEqual(updated["escalation_state"], "watch")
+            self.assertEqual(updated["priority"], "high")
+
+            filtered = handlers.review_tasks(
+                {
+                    "assigned_role": "c5isr_manager",
+                    "escalation_state": "watch",
+                }
+            )
+            self.assertEqual(filtered["summary"]["escalated"], 1)
+            self.assertEqual(filtered["review_tasks"][0]["id"], task_id)
+
+            recall = handlers.recall(
+                {
+                    "query": "route bravo",
+                    "kind": "review_task",
+                    "state": "acknowledged",
+                    "assigned_role": "c5isr_manager",
+                    "limit": "10",
+                }
+            )
+            self.assertGreaterEqual(recall["recall"]["count"], 1)
+            self.assertEqual(recall["recall"]["results"][0]["kind"], "review_task")
+
+            replay = handlers.create_audit_replay(
+                {
+                    "focus_id": "",
+                    "limit": "10",
+                    "package_scope": "c5isr",
+                    "source_kind": "operator_report",
+                    "query": "route bravo",
+                }
+            )["audit_replay"]
+            self.assertEqual(replay["drilldown"]["package_scope"], "c5isr")
+            self.assertEqual(replay["drilldown"]["source_kind"], "operator_report")
+            self.assertEqual(replay["drilldown"]["query"], "route bravo")
+            self.assertGreaterEqual(replay["summary"]["evidence_packs"], 1)
+
     def test_api_handler_validates_cop_track(self) -> None:
         with TemporaryDirectory() as tmp:
             database = SQLiteJINXDatabase(Path(tmp) / "jinx.sqlite3")
@@ -490,6 +567,7 @@ class WebDatabaseFrontendTests(TestCase):
         self.assertIn("/api/core/boundary-controls", (static_root / "app.js").read_text(encoding="utf-8"))
         self.assertIn("/api/core/evidence-packs", (static_root / "app.js").read_text(encoding="utf-8"))
         self.assertIn("/api/core/review-tasks", (static_root / "app.js").read_text(encoding="utf-8"))
+        self.assertIn("/api/core/review-tasks/query", (static_root / "app.js").read_text(encoding="utf-8"))
         self.assertIn("/api/core/memory", (static_root / "app.js").read_text(encoding="utf-8"))
         self.assertIn("/api/core/recall", (static_root / "app.js").read_text(encoding="utf-8"))
         self.assertIn("/api/core/audit-replay", (static_root / "app.js").read_text(encoding="utf-8"))
@@ -525,6 +603,7 @@ class WebDatabaseFrontendTests(TestCase):
         self.assertIn("Adapter Control", (static_root / "index.html").read_text(encoding="utf-8"))
         self.assertIn("Evidence Packs", (static_root / "index.html").read_text(encoding="utf-8"))
         self.assertIn("Review Tasks", (static_root / "index.html").read_text(encoding="utf-8"))
+        self.assertIn("Filter Review Tasks", (static_root / "index.html").read_text(encoding="utf-8"))
         self.assertIn("Adapter Runs", (static_root / "index.html").read_text(encoding="utf-8"))
         self.assertIn("Doctrine Library", (static_root / "index.html").read_text(encoding="utf-8"))
         self.assertIn("Compartmented Memory", (static_root / "index.html").read_text(encoding="utf-8"))
@@ -538,6 +617,8 @@ class WebDatabaseFrontendTests(TestCase):
         self.assertIn("BRAIN Checklists", (static_root / "index.html").read_text(encoding="utf-8"))
         self.assertIn("Policy Decisions", (static_root / "index.html").read_text(encoding="utf-8"))
         self.assertIn("Audit Replay", (static_root / "index.html").read_text(encoding="utf-8"))
+        self.assertIn("Assign to Me", (static_root / "app.js").read_text(encoding="utf-8"))
+        self.assertIn("Escalate", (static_root / "app.js").read_text(encoding="utf-8"))
         self.assertIn("Simulation Runs", (static_root / "index.html").read_text(encoding="utf-8"))
         self.assertIn("C5ISR Review Center", (static_root / "index.html").read_text(encoding="utf-8"))
         self.assertIn("Core Analysis Runs", (static_root / "index.html").read_text(encoding="utf-8"))

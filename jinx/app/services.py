@@ -795,7 +795,15 @@ class JINXApplicationService:
             by_kind[kind] = by_kind.get(kind, 0) + 1
         return {"evidence_packs": records, "summary": {"total": len(records), "by_kind": by_kind}}
 
-    def review_tasks_document(self, package_scope: str = "", state: str = "") -> dict[str, object]:
+    def review_tasks_document(
+        self,
+        package_scope: str = "",
+        state: str = "",
+        assigned_role: str = "",
+        assigned_reviewer: str = "",
+        escalation_state: str = "",
+        source_kind: str = "",
+    ) -> dict[str, object]:
         self._sync_review_tasks()
         if self.database is None:
             return {"review_tasks": [], "summary": {"total": 0, "open": 0}}
@@ -804,8 +812,35 @@ class JINXApplicationService:
             records = [record for record in records if record.get("package_scope") in {package_scope, "full"}]
         if state:
             records = [record for record in records if record.get("state") == state]
+        if assigned_role:
+            records = [record for record in records if record.get("assigned_role") == assigned_role]
+        if assigned_reviewer:
+            records = [record for record in records if record.get("assigned_reviewer") == assigned_reviewer]
+        if escalation_state:
+            records = [record for record in records if record.get("escalation_state") == escalation_state]
+        if source_kind:
+            records = [record for record in records if record.get("source_kind") == source_kind]
         open_count = sum(1 for record in records if record.get("state") not in {"validated", "closed", "rejected"})
-        return {"review_tasks": records, "summary": {"total": len(records), "open": open_count}}
+        escalated_count = sum(
+            1 for record in records if str(record.get("escalation_state", "none")) in {"watch", "elevated", "critical"}
+        )
+        by_package: dict[str, int] = {}
+        by_state: dict[str, int] = {}
+        for record in records:
+            package = str(record.get("package_scope", "full"))
+            by_package[package] = by_package.get(package, 0) + 1
+            record_state = str(record.get("state", "new"))
+            by_state[record_state] = by_state.get(record_state, 0) + 1
+        return {
+            "review_tasks": records,
+            "summary": {
+                "total": len(records),
+                "open": open_count,
+                "escalated": escalated_count,
+                "by_package": by_package,
+                "by_state": by_state,
+            },
+        }
 
     def update_review_task(
         self,
@@ -814,33 +849,55 @@ class JINXApplicationService:
         reviewer_id: str,
         note: str = "",
         remember: bool = False,
+        assigned_role: str = "",
+        assigned_reviewer: str = "",
+        escalation_state: str = "",
+        priority: str = "",
+        due_label: str = "",
     ) -> dict[str, object]:
         self._sync_review_tasks()
         if self.database is None:
             raise ValueError("database is required for review workflow")
         allowed_states = {"new", "acknowledged", "validated", "rejected", "needs_more_info", "closed"}
-        if state not in allowed_states:
+        if state and state not in allowed_states:
             raise ValueError(f"invalid review task state: {state}")
         task = self.database.get_document("review_tasks", task_id)
         history = list(task.get("history", []))
+        next_state = state or str(task.get("state", "new"))
+        assignment_changes: dict[str, str] = {}
+        if assigned_role:
+            assignment_changes["assigned_role"] = assigned_role
+        if assigned_reviewer:
+            assignment_changes["assigned_reviewer"] = assigned_reviewer
+        elif assigned_role:
+            assignment_changes["assigned_reviewer"] = self._default_reviewer_for_role(assigned_role)
+        if escalation_state:
+            assignment_changes["escalation_state"] = escalation_state
+        if priority:
+            assignment_changes["priority"] = priority
+        if due_label:
+            assignment_changes["due_label"] = due_label
         history.append(
             {
-                "state": state,
+                "state": next_state,
                 "reviewer_id": reviewer_id,
                 "note": note,
+                "assignment_changes": assignment_changes,
                 "timestamp": datetime.now(UTC).isoformat(),
             }
         )
-        task["state"] = state
+        task["state"] = next_state
         task["reviewed_by"] = reviewer_id
         task["last_note"] = note
         task["history"] = history
         task["updated_at"] = datetime.now(UTC).isoformat()
-        if state == "acknowledged":
+        for key, value in assignment_changes.items():
+            task[key] = value
+        if next_state == "acknowledged":
             task["acknowledged_by"] = reviewer_id
         self.database.save_document("review_tasks", task_id, task)
-        self._apply_review_state_to_source(task, state, reviewer_id, note)
-        if remember or state in {"validated", "rejected"}:
+        self._apply_review_state_to_source(task, next_state, reviewer_id, note)
+        if remember or next_state in {"validated", "rejected"}:
             self._persist_memory_record(
                 compartment=self._memory_compartment_for_package(str(task.get("package_scope", "full"))),
                 package_scope=str(task.get("package_scope", "full")),
@@ -851,12 +908,19 @@ class JINXApplicationService:
                 source_id=task_id,
                 created_by=reviewer_id,
                 provenance_refs=tuple(task.get("provenance_refs", ())),
-                review_state=state,
+                review_state=next_state,
             )
         self._append_timeline(
             "review_task",
-            f"Review task {task_id} marked {state}.",
-            {"task_id": task_id, "reviewer_id": reviewer_id, "state": state},
+            f"Review task {task_id} marked {next_state}.",
+            {
+                "task_id": task_id,
+                "reviewer_id": reviewer_id,
+                "state": next_state,
+                "assigned_role": task.get("assigned_role", ""),
+                "assigned_reviewer": task.get("assigned_reviewer", ""),
+                "escalation_state": task.get("escalation_state", ""),
+            },
         )
         return {"review_task": task}
 
@@ -903,61 +967,100 @@ class JINXApplicationService:
         )
         return {"memory_record": document}
 
-    def recall_document(self, query: str, package_scope: str = "") -> dict[str, object]:
+    def recall_document(
+        self,
+        query: str,
+        package_scope: str = "",
+        kind: str = "",
+        state: str = "",
+        assigned_role: str = "",
+        limit: int = 40,
+    ) -> dict[str, object]:
         query_text = query.strip().lower()
         results: list[dict[str, object]] = []
+        allowed_kinds = {kind} if kind else {"evidence_pack", "review_task", "memory_record", "doctrine_record"}
         if self.database is not None:
-            for record in self.database.list_documents("evidence_packs"):
-                if package_scope and record.get("package_scope") not in {package_scope, "full"}:
-                    continue
-                if self._matches_recall_query(query_text, record, ("title", "summary", "source_kind", "recommended_review_role")):
+            if "evidence_pack" in allowed_kinds:
+                for record in self.database.list_documents("evidence_packs"):
+                    if package_scope and record.get("package_scope") not in {package_scope, "full"}:
+                        continue
+                    if self._matches_recall_query(query_text, record, ("title", "summary", "source_kind", "recommended_review_role")):
+                        results.append(
+                            {
+                                "kind": "evidence_pack",
+                                "id": record["id"],
+                                "title": record.get("title", record["id"]),
+                                "summary": record.get("summary", ""),
+                                "package_scope": record.get("package_scope", "full"),
+                                "source_kind": record.get("source_kind", ""),
+                                "matched_on": "evidence",
+                            }
+                        )
+            if "review_task" in allowed_kinds:
+                for record in self.database.list_documents("review_tasks"):
+                    if package_scope and record.get("package_scope") not in {package_scope, "full"}:
+                        continue
+                    if state and record.get("state") != state:
+                        continue
+                    if assigned_role and record.get("assigned_role") != assigned_role:
+                        continue
+                    if self._matches_recall_query(query_text, record, ("title", "summary", "state", "assigned_role", "assigned_reviewer", "escalation_state")):
+                        results.append(
+                            {
+                                "kind": "review_task",
+                                "id": record["id"],
+                                "title": record.get("title", record["id"]),
+                                "summary": record.get("summary", ""),
+                                "package_scope": record.get("package_scope", "full"),
+                                "source_kind": record.get("source_kind", ""),
+                                "matched_on": "review",
+                                "state": record.get("state", "new"),
+                            }
+                        )
+            if "memory_record" in allowed_kinds:
+                for record in self.database.list_documents("compartment_memories"):
+                    if package_scope and record.get("package_scope") not in {package_scope, "full"}:
+                        continue
+                    if self._matches_recall_query(query_text, record, ("title", "summary", "compartment")):
+                        results.append(
+                            {
+                                "kind": "memory_record",
+                                "id": record["id"],
+                                "title": record.get("title", record["id"]),
+                                "summary": record.get("summary", ""),
+                                "package_scope": record.get("package_scope", "full"),
+                                "source_kind": record.get("source_kind", ""),
+                                "matched_on": "memory",
+                            }
+                        )
+        if "doctrine_record" in allowed_kinds:
+            for record in self.doctrine_library_document()["doctrine_library"]["records"]:
+                if self._matches_recall_query(query_text, record, ("title", "summary", "scope", "source")):
                     results.append(
                         {
-                            "kind": "evidence_pack",
+                            "kind": "doctrine_record",
                             "id": record["id"],
-                            "title": record.get("title", record["id"]),
-                            "summary": record.get("summary", ""),
-                            "package_scope": record.get("package_scope", "full"),
+                            "title": record["title"],
+                            "summary": record["summary"],
+                            "package_scope": "full",
+                            "source_kind": record.get("scope", ""),
+                            "matched_on": "doctrine",
                         }
                     )
-            for record in self.database.list_documents("review_tasks"):
-                if package_scope and record.get("package_scope") not in {package_scope, "full"}:
-                    continue
-                if self._matches_recall_query(query_text, record, ("title", "summary", "state", "assigned_role")):
-                    results.append(
-                        {
-                            "kind": "review_task",
-                            "id": record["id"],
-                            "title": record.get("title", record["id"]),
-                            "summary": record.get("summary", ""),
-                            "package_scope": record.get("package_scope", "full"),
-                        }
-                    )
-            for record in self.database.list_documents("compartment_memories"):
-                if package_scope and record.get("package_scope") not in {package_scope, "full"}:
-                    continue
-                if self._matches_recall_query(query_text, record, ("title", "summary", "compartment")):
-                    results.append(
-                        {
-                            "kind": "memory_record",
-                            "id": record["id"],
-                            "title": record.get("title", record["id"]),
-                            "summary": record.get("summary", ""),
-                            "package_scope": record.get("package_scope", "full"),
-                        }
-                    )
-        for record in self.doctrine_library_document()["doctrine_library"]["records"]:
-            if self._matches_recall_query(query_text, record, ("title", "summary", "scope", "source")):
-                results.append(
-                    {
-                        "kind": "doctrine_record",
-                        "id": record["id"],
-                        "title": record["title"],
-                        "summary": record["summary"],
-                        "package_scope": "full",
-                    }
-                )
-        return {"recall": {"query": query, "results": results[:40], "count": len(results)}}
+        return {
+            "recall": {
+                "query": query,
+                "filters": {
+                    "package_scope": package_scope,
+                    "kind": kind,
+                    "state": state,
+                    "assigned_role": assigned_role,
+                    "limit": limit,
+                },
+                "results": results[:limit],
+                "count": len(results),
+            }
+        }
 
     def adapter_runs_document(self) -> dict[str, object]:
         return {"adapter_runs": self.database.list_documents("adapter_runs") if self.database else []}
@@ -1094,15 +1197,34 @@ class JINXApplicationService:
             return {"audit_replay": self.database.list_documents("audit_replay_runs")[-1]}
         return {"audit_replay": self._build_audit_replay_document()}
 
-    def create_audit_replay(self, focus_id: str = "", limit: int = 12) -> dict[str, object]:
+    def create_audit_replay(
+        self,
+        focus_id: str = "",
+        limit: int = 12,
+        package_scope: str = "",
+        source_kind: str = "",
+        query: str = "",
+    ) -> dict[str, object]:
         if self.database is None:
             raise ValueError("database is required for audit replay")
-        replay = self._build_audit_replay_document(focus_id=focus_id, limit=limit)
+        replay = self._build_audit_replay_document(
+            focus_id=focus_id,
+            limit=limit,
+            package_scope=package_scope,
+            source_kind=source_kind,
+            query=query,
+        )
         self.database.save_document("audit_replay_runs", replay["id"], replay)
         self._append_timeline(
             "audit_replay",
             "After-action audit replay generated for human review.",
-            {"audit_replay_id": replay["id"], "focus_id": focus_id},
+            {
+                "audit_replay_id": replay["id"],
+                "focus_id": focus_id,
+                "package_scope": package_scope,
+                "source_kind": source_kind,
+                "query": query,
+            },
         )
         return {"audit_replay": replay}
 
@@ -2052,6 +2174,41 @@ class JINXApplicationService:
             return "medium"
         return "low"
 
+    @staticmethod
+    def _default_reviewer_for_role(role: str) -> str:
+        mapping = {
+            "system_administrator": "systemadministrator",
+            "c5isr_manager": "c5isr-manager-alpha",
+            "network_manager": "net-manager-alpha",
+            "intel_analyst": "intel-alpha",
+            "simulation_operator": "sim-operator-alpha",
+            "operator": "operator-alpha",
+            "auditor": "auditor-alpha",
+            "commander": "commander-alpha",
+            "human reviewer": "systemadministrator",
+        }
+        return mapping.get(role, "systemadministrator")
+
+    @staticmethod
+    def _priority_for_severity(severity: str) -> str:
+        mapping = {
+            "critical": "critical",
+            "high": "high",
+            "medium": "medium",
+            "low": "low",
+        }
+        return mapping.get(severity, "medium")
+
+    @staticmethod
+    def _due_label_for_priority(priority: str) -> str:
+        mapping = {
+            "critical": "Immediate",
+            "high": "This hour",
+            "medium": "This shift",
+            "low": "When available",
+        }
+        return mapping.get(priority, "This shift")
+
     def _sync_review_tasks(self) -> None:
         if self.database is None:
             return
@@ -2187,6 +2344,11 @@ class JINXApplicationService:
         except KeyError:
             existing = None
         state = str(existing.get("state", "new")) if existing else "new"
+        severity = str(document.get("severity", existing.get("severity", "medium") if existing else "medium"))
+        assigned_role = str(
+            existing.get("assigned_role", document.get("assigned_role", "system_administrator")) if existing else document.get("assigned_role", "system_administrator")
+        )
+        priority = str(existing.get("priority", self._priority_for_severity(severity)) if existing else self._priority_for_severity(severity))
         merged = {
             "id": task_id,
             "state": state,
@@ -2194,6 +2356,11 @@ class JINXApplicationService:
             "acknowledged_by": existing.get("acknowledged_by") if existing else None,
             "reviewed_by": existing.get("reviewed_by") if existing else None,
             "last_note": existing.get("last_note", "") if existing else "",
+            "assigned_reviewer": existing.get("assigned_reviewer", self._default_reviewer_for_role(assigned_role)) if existing else self._default_reviewer_for_role(assigned_role),
+            "escalation_state": existing.get("escalation_state", "none") if existing else "none",
+            "priority": priority,
+            "due_label": existing.get("due_label", self._due_label_for_priority(priority)) if existing else self._due_label_for_priority(priority),
+            "review_lane": existing.get("review_lane", document.get("package_scope", "full")) if existing else document.get("package_scope", "full"),
             "created_at": existing.get("created_at", now) if existing else now,
             "updated_at": now,
             **document,
@@ -2294,7 +2461,14 @@ class JINXApplicationService:
         tags = " ".join(str(item) for item in record.get("tags", ())).lower()
         return query_text in haystack or query_text in tags
 
-    def _build_audit_replay_document(self, focus_id: str = "", limit: int = 12) -> dict[str, object]:
+    def _build_audit_replay_document(
+        self,
+        focus_id: str = "",
+        limit: int = 12,
+        package_scope: str = "",
+        source_kind: str = "",
+        query: str = "",
+    ) -> dict[str, object]:
         self._sync_review_tasks()
         self._sync_audit_ledger()
         self._sync_fabric_ledger()
@@ -2306,6 +2480,55 @@ class JINXApplicationService:
         audits = list(self.database.list_documents("audit_records")) if self.database else []
         policy_decisions = list(self.database.list_documents("policy_decisions")) if self.database else []
         fabric = list(self.database.list_documents("fabric_messages")) if self.database else []
+        query_text = query.strip().lower()
+        if package_scope:
+            evidence = [record for record in evidence if record.get("package_scope") in {package_scope, "full"}]
+            review_tasks = [record for record in review_tasks if record.get("package_scope") in {package_scope, "full"}]
+            memories = [record for record in memories if record.get("package_scope") in {package_scope, "full"}]
+        if source_kind:
+            evidence = [record for record in evidence if record.get("source_kind") == source_kind]
+            review_tasks = [record for record in review_tasks if record.get("source_kind") == source_kind]
+            memories = [record for record in memories if record.get("source_kind") == source_kind]
+        if query_text:
+            evidence = [
+                record
+                for record in evidence
+                if self._matches_recall_query(query_text, record, ("title", "summary", "source_kind", "recommended_review_role"))
+            ]
+            review_tasks = [
+                record
+                for record in review_tasks
+                if self._matches_recall_query(query_text, record, ("title", "summary", "state", "assigned_role", "assigned_reviewer"))
+            ]
+            memories = [
+                record
+                for record in memories
+                if self._matches_recall_query(query_text, record, ("title", "summary", "compartment", "source_kind"))
+            ]
+            timeline = [
+                record
+                for record in timeline
+                if query_text in str(record.get("summary", "")).lower() or query_text in str(record.get("kind", "")).lower()
+            ]
+            audits = [
+                record
+                for record in audits
+                if query_text in str(record.get("summary", "")).lower()
+            ]
+            policy_decisions = [
+                record
+                for record in policy_decisions
+                if query_text in str(record.get("summary", "")).lower()
+                or query_text in str(record.get("source_module", "")).lower()
+                or query_text in str(record.get("destination", "")).lower()
+            ]
+            fabric = [
+                record
+                for record in fabric
+                if query_text in str(record.get("topic", "")).lower()
+                or query_text in str(record.get("source_module", "")).lower()
+                or query_text in str(record.get("destination", "")).lower()
+            ]
         if focus_id:
             evidence = [
                 record
@@ -2344,11 +2567,36 @@ class JINXApplicationService:
                 for record in fabric
                 if focus_id == record.get("provenance_ref") or focus_id == record.get("message_id")
             ]
+        package_counts: dict[str, int] = {}
+        source_counts: dict[str, int] = {}
+        review_state_counts: dict[str, int] = {}
+        for record in evidence:
+            package = str(record.get("package_scope", "full"))
+            package_counts[package] = package_counts.get(package, 0) + 1
+            kind = str(record.get("source_kind", "unknown"))
+            source_counts[kind] = source_counts.get(kind, 0) + 1
+        for record in review_tasks:
+            state = str(record.get("state", "new"))
+            review_state_counts[state] = review_state_counts.get(state, 0) + 1
+        cross_reference_ids = sorted(
+            {
+                str(item)
+                for record in evidence
+                for item in [record.get("source_id", ""), *list(record.get("related_ids", ()))]
+                if str(item)
+            }
+        )[:12]
         replay_id = f"replay-{uuid4().hex[:12]}"
         return {
             "id": replay_id,
             "focus_id": focus_id or "latest-platform-state",
             "generated_at": datetime.now(UTC).isoformat(),
+            "drilldown": {
+                "package_scope": package_scope or "all",
+                "source_kind": source_kind or "all",
+                "query": query,
+                "matched_cross_references": cross_reference_ids,
+            },
             "summary": {
                 "timeline_events": len(timeline[-limit:]),
                 "audit_records": len(audits[-limit:]),
@@ -2357,6 +2605,9 @@ class JINXApplicationService:
                 "evidence_packs": len(evidence[-limit:]),
                 "review_tasks": len(review_tasks[-limit:]),
                 "memory_records": len(memories[-limit:]),
+                "package_counts": package_counts,
+                "source_kind_counts": source_counts,
+                "review_state_counts": review_state_counts,
             },
             "timeline": timeline[-limit:],
             "audit_records": audits[-limit:],

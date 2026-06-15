@@ -262,16 +262,29 @@ class JINXAPIHandlers:
     def evidence_packs(self) -> dict[str, object]:
         return self.service.evidence_packs_document()
 
-    def review_tasks(self) -> dict[str, object]:
-        return self.service.review_tasks_document()
+    def review_tasks(self, payload: dict[str, str] | None = None) -> dict[str, object]:
+        payload = payload or {}
+        return self.service.review_tasks_document(
+            package_scope=payload.get("package_scope", ""),
+            state=payload.get("state", ""),
+            assigned_role=payload.get("assigned_role", ""),
+            assigned_reviewer=payload.get("assigned_reviewer", ""),
+            escalation_state=payload.get("escalation_state", ""),
+            source_kind=payload.get("source_kind", ""),
+        )
 
     def update_review_task(self, payload: dict[str, str]) -> dict[str, object]:
         return self.service.update_review_task(
             task_id=payload["task_id"],
-            state=payload["state"],
+            state=payload.get("state", ""),
             reviewer_id=payload["reviewer_id"],
             note=payload.get("note", ""),
             remember=payload.get("remember", "false").lower() == "true",
+            assigned_role=payload.get("assigned_role", ""),
+            assigned_reviewer=payload.get("assigned_reviewer", ""),
+            escalation_state=payload.get("escalation_state", ""),
+            priority=payload.get("priority", ""),
+            due_label=payload.get("due_label", ""),
         )
 
     def memory(self) -> dict[str, object]:
@@ -292,9 +305,18 @@ class JINXAPIHandlers:
         )
 
     def recall(self, payload: dict[str, str]) -> dict[str, object]:
+        limit_raw = payload.get("limit", "40")
+        try:
+            limit = int(limit_raw)
+        except ValueError as exc:
+            raise ValueError("limit must be an integer") from exc
         return self.service.recall_document(
             query=payload.get("query", ""),
             package_scope=payload.get("package_scope", ""),
+            kind=payload.get("kind", ""),
+            state=payload.get("state", ""),
+            assigned_role=payload.get("assigned_role", ""),
+            limit=limit,
         )
 
     def doctrine_library(self) -> dict[str, object]:
@@ -360,6 +382,9 @@ class JINXAPIHandlers:
         return self.service.create_audit_replay(
             focus_id=payload.get("focus_id", ""),
             limit=limit,
+            package_scope=payload.get("package_scope", ""),
+            source_kind=payload.get("source_kind", ""),
+            query=payload.get("query", ""),
         )
 
     def run_c5isr_scenario(self, payload: dict[str, str]) -> dict[str, object]:

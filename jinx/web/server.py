@@ -548,6 +548,10 @@ class JINXRequestHandler(SimpleHTTPRequestHandler):
                 self._require_permission("ops:read")
                 self._send_json(self.server.api_handlers.update_review_task(payload), status=200)
                 return
+            if parsed.path == "/api/core/review-tasks/query":
+                self._require_permission("ops:read")
+                self._send_json(self.server.api_handlers.review_tasks(payload), status=200)
+                return
             if parsed.path == "/api/core/memory":
                 self._require_permission("audit:read")
                 self._send_json(self.server.api_handlers.write_memory(payload), status=201)

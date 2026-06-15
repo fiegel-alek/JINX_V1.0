@@ -59,6 +59,7 @@ const els = {
   identityUserForm: document.querySelector("#identity-user-form"),
   adapterForm: document.querySelector("#adapter-form"),
   adapterExecuteForm: document.querySelector("#adapter-execute-form"),
+  reviewTaskFilterForm: document.querySelector("#review-task-filter-form"),
   reportForm: document.querySelector("#report-form"),
   commandForm: document.querySelector("#command-form"),
   intelForm: document.querySelector("#intel-form"),
@@ -110,6 +111,12 @@ function activeReviewerId() {
     operator: "operator-alpha",
   };
   return mapping[activeRole()] || "systemadministrator";
+}
+
+function nextEscalationState(currentState = "none") {
+  const order = ["none", "watch", "elevated", "critical"];
+  const index = order.indexOf(currentState || "none");
+  return order[Math.min(index + 1, order.length - 1)];
 }
 
 function activeSessionToken() {
@@ -681,17 +688,23 @@ function renderEvidencePacks(records, summary = {}) {
 }
 
 function renderReviewTasks(records, summary = {}) {
-  document.querySelector("#review-task-count").textContent = summary.open ?? records.length;
+  const openCount = summary.open ?? records.length;
+  const escalatedCount = summary.escalated ?? 0;
+  document.querySelector("#review-task-count").textContent = `${openCount} open · ${escalatedCount} escalated`;
   renderList(els.reviewTaskList, records.slice(-8).reverse(), "No review tasks", (record) => `
     <article class="item ops">
       <strong>${escapeHTML(record.title)} · ${escapeHTML(record.state)}</strong>
       <span>${escapeHTML(record.summary)}</span>
-      <span>${escapeHTML(record.source_kind)} · ${escapeHTML(record.assigned_role)} · confidence ${escapeHTML(record.confidence)}</span>
+      <span>${escapeHTML(record.source_kind)} · ${escapeHTML(record.assigned_role)} · ${escapeHTML(record.assigned_reviewer || "unassigned")}</span>
+      <span>priority ${escapeHTML(record.priority || "medium")} · due ${escapeHTML(record.due_label || "This shift")} · escalation ${escapeHTML(record.escalation_state || "none")}</span>
+      <span>confidence ${escapeHTML(record.confidence)}</span>
       <div class="review-row">
         <button type="button" data-review-task="${escapeHTML(record.id)}" data-task-state="acknowledged">Acknowledge</button>
         <button type="button" data-review-task="${escapeHTML(record.id)}" data-task-state="validated">Validate</button>
         <button type="button" data-review-task="${escapeHTML(record.id)}" data-task-state="needs_more_info">Need info</button>
         <button type="button" data-review-task="${escapeHTML(record.id)}" data-task-state="rejected">Reject</button>
+        <button type="button" data-review-task-assign="${escapeHTML(record.id)}" data-current-state="${escapeHTML(record.state || "new")}">Assign to Me</button>
+        <button type="button" data-review-task-escalate="${escapeHTML(record.id)}" data-current-state="${escapeHTML(record.state || "new")}" data-escalation-state="${escapeHTML(record.escalation_state || "none")}">Escalate</button>
       </div>
     </article>
   `);
@@ -736,7 +749,7 @@ function renderRecall(recall) {
     <article class="item ops">
       <strong>${escapeHTML(record.kind)} · ${escapeHTML(record.title)}</strong>
       <span>${escapeHTML(record.summary)}</span>
-      <span>${escapeHTML(record.package_scope)}</span>
+      <span>${escapeHTML(record.package_scope)} · ${escapeHTML(record.source_kind || record.matched_on || "")}</span>
     </article>
   `);
 }
@@ -765,6 +778,7 @@ function renderAuditReplay(replay) {
       <strong>${escapeHTML(record.focus_id)} · ${escapeHTML(record.id)}</strong>
       <span>timeline ${escapeHTML(record.summary?.timeline_events ?? 0)} · audit ${escapeHTML(record.summary?.audit_records ?? 0)} · evidence ${escapeHTML(record.summary?.evidence_packs ?? 0)}</span>
       <span>review tasks ${escapeHTML(record.summary?.review_tasks ?? 0)} · memory ${escapeHTML(record.summary?.memory_records ?? 0)} · fabric ${escapeHTML(record.summary?.fabric_messages ?? 0)}</span>
+      <span>package ${escapeHTML(record.drilldown?.package_scope || "all")} · source ${escapeHTML(record.drilldown?.source_kind || "all")} · query ${escapeHTML(record.drilldown?.query || "none")}</span>
     </article>
   `);
 }
@@ -1168,6 +1182,18 @@ els.adapterExecuteForm.addEventListener("submit", async (event) => {
   }
 });
 
+els.reviewTaskFilterForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const data = Object.fromEntries(new FormData(els.reviewTaskFilterForm).entries());
+  try {
+    const response = await postJSON("/api/core/review-tasks/query", data);
+    renderReviewTasks(response.review_tasks || [], response.summary || {});
+    addActivity(`Review task filter returned ${response.summary?.total || 0} items.`);
+  } catch (error) {
+    addActivity(error.message);
+  }
+});
+
 els.doctrineForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   const data = Object.fromEntries(new FormData(els.doctrineForm).entries());
@@ -1245,20 +1271,56 @@ els.missionButton.addEventListener("click", async () => {
 });
 
 els.reviewTaskList.addEventListener("click", async (event) => {
-  const button = event.target.closest("[data-review-task]");
-  if (!button) return;
-  try {
-    const response = await postJSON("/api/core/review-tasks", {
-      task_id: button.dataset.reviewTask,
-      state: button.dataset.taskState,
-      reviewer_id: activeReviewerId(),
-      note: `Review task moved to ${button.dataset.taskState} from Ops.`,
-      remember: button.dataset.taskState === "validated" ? "true" : "false",
-    });
-    addActivity(`Review task ${response.review_task.id} marked ${response.review_task.state}.`);
-    await refreshDashboard();
-  } catch (error) {
-    addActivity(error.message);
+  const stateButton = event.target.closest("[data-review-task]");
+  if (stateButton) {
+    try {
+      const response = await postJSON("/api/core/review-tasks", {
+        task_id: stateButton.dataset.reviewTask,
+        state: stateButton.dataset.taskState,
+        reviewer_id: activeReviewerId(),
+        note: `Review task moved to ${stateButton.dataset.taskState} from Ops.`,
+        remember: stateButton.dataset.taskState === "validated" ? "true" : "false",
+      });
+      addActivity(`Review task ${response.review_task.id} marked ${response.review_task.state}.`);
+      await refreshDashboard();
+    } catch (error) {
+      addActivity(error.message);
+    }
+    return;
+  }
+  const assignButton = event.target.closest("[data-review-task-assign]");
+  if (assignButton) {
+    try {
+      const response = await postJSON("/api/core/review-tasks", {
+        task_id: assignButton.dataset.reviewTaskAssign,
+        state: assignButton.dataset.currentState || "",
+        reviewer_id: activeReviewerId(),
+        assigned_role: activeRole(),
+        assigned_reviewer: activeReviewerId(),
+        note: `Assigned to ${activeReviewerId()} from Ops.`,
+      });
+      addActivity(`Review task ${response.review_task.id} assigned to ${response.review_task.assigned_reviewer}.`);
+      await refreshDashboard();
+    } catch (error) {
+      addActivity(error.message);
+    }
+    return;
+  }
+  const escalateButton = event.target.closest("[data-review-task-escalate]");
+  if (escalateButton) {
+    try {
+      const response = await postJSON("/api/core/review-tasks", {
+        task_id: escalateButton.dataset.reviewTaskEscalate,
+        state: escalateButton.dataset.currentState || "",
+        reviewer_id: activeReviewerId(),
+        escalation_state: nextEscalationState(escalateButton.dataset.escalationState || "none"),
+        note: "Review task escalation advanced from Ops.",
+      });
+      addActivity(`Review task ${response.review_task.id} escalated to ${response.review_task.escalation_state}.`);
+      await refreshDashboard();
+    } catch (error) {
+      addActivity(error.message);
+    }
   }
 });
 
