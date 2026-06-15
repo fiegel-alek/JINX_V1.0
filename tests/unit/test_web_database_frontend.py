@@ -303,6 +303,127 @@ class WebDatabaseFrontendTests(TestCase):
             self.assertIn("ended_at", revoked)
             self.assertEqual(identity["active_session_count"], 0)
 
+    def test_sprint16_19_evidence_memory_doctrine_adapter_and_replay_workflows(self) -> None:
+        with TemporaryDirectory() as tmp:
+            database = SQLiteJINXDatabase(Path(tmp) / "jinx.sqlite3")
+            handlers = JINXAPIHandlers(JINXApplicationService(database=database))
+
+            handlers.submit_mission_context(
+                {
+                    "mission_statement": "Synthetic mission monitors Route Alpha and Area Alpha.",
+                    "route": "Route Alpha",
+                    "named_area": "Area Alpha",
+                }
+            )
+            report = handlers.submit_operator_report(
+                {
+                    "reporter_id": "operator-alpha",
+                    "device_id": "operator-mini-001",
+                    "report_type": "hazard",
+                    "summary": "Synthetic hazard observed near Route Alpha.",
+                    "location": "Route Alpha",
+                }
+            )
+            handlers.submit_network_plan(
+                {
+                    "name": "Synthetic Relay Plan",
+                    "node_ids": "node-alpha,node-bravo",
+                    "timeslots": "slot-01:node-alpha,slot-01:node-bravo",
+                    "los_links": "node-alpha>node-bravo",
+                    "los_status": "degraded",
+                }
+            )
+            handlers.ask_brain_chat(
+                {
+                    "text": "What human review should happen before communications assumptions change?",
+                    "user_id": "operator-alpha",
+                    "role": "operator",
+                    "use_core_reachback": "true",
+                }
+            )
+
+            evidence = handlers.evidence_packs()
+            review_tasks = handlers.review_tasks()
+            self.assertGreaterEqual(database.count("evidence_packs"), 6)
+            self.assertTrue(evidence["evidence_packs"])
+            self.assertTrue(review_tasks["review_tasks"])
+
+            updated_review = handlers.update_review_task(
+                {
+                    "task_id": review_tasks["review_tasks"][0]["id"],
+                    "state": "validated",
+                    "reviewer_id": "systemadministrator",
+                    "note": "Validated during integrated sprint workflow test.",
+                    "remember": "true",
+                }
+            )
+            self.assertEqual(updated_review["review_task"]["state"], "validated")
+
+            memory_record = handlers.write_memory(
+                {
+                    "compartment": "core.shared",
+                    "package_scope": "full",
+                    "title": "Synthetic lesson capture",
+                    "summary": "Manual lesson captured during sprint workflow test.",
+                    "tags": "lesson,review",
+                    "source_kind": "manual_memory",
+                    "source_id": report["report_id"],
+                    "created_by": "systemadministrator",
+                    "provenance_refs": report["report_id"],
+                }
+            )
+            self.assertEqual(memory_record["memory_record"]["source_id"], report["report_id"])
+            self.assertGreaterEqual(database.count("compartment_memories"), 1)
+
+            doctrine = handlers.doctrine_library()
+            registered = handlers.register_doctrine(
+                {
+                    "title": "Synthetic route review doctrine note",
+                    "scope": "lesson_learned",
+                    "summary": "Synthetic doctrine record for review workflow validation.",
+                    "source": "workflow-test",
+                    "applicability": "brain_reference,human_review",
+                    "restrictions": "Synthetic or explicitly authorized advisory reference only.,Does not authorize operational action.",
+                    "tags": "review,lesson,workflow",
+                }
+            )
+            self.assertTrue(doctrine["doctrine_library"]["records"])
+            self.assertEqual(registered["doctrine_record"]["source"], "workflow-test")
+
+            learning_proposals = handlers.service.learning_proposals_document()["learning_proposals"]
+            promoted = handlers.promote_learning_proposal(
+                {
+                    "proposal_id": learning_proposals[-1]["id"],
+                    "title": "Promoted workflow lesson",
+                    "scope": "lesson_learned",
+                    "reviewer_id": "systemadministrator",
+                    "note": "Promoted during sprint workflow test.",
+                    "tags": "lesson,promoted,workflow",
+                }
+            )
+            self.assertEqual(promoted["learning_proposal"]["review_status"], "approved")
+            self.assertGreaterEqual(database.count("doctrine_library"), 2)
+
+            handlers.update_adapter(
+                {"adapter_id": "adapter-weather-open", "action": "activate", "enabled": "true"}
+            )
+            adapter_run = handlers.execute_adapter(
+                {
+                    "adapter_id": "adapter-weather-open",
+                    "initiated_by": "systemadministrator",
+                    "summary": "Synthetic adapter execution for workflow validation.",
+                }
+            )
+            self.assertEqual(adapter_run["adapter_run"]["status"], "completed")
+            self.assertGreaterEqual(database.count("adapter_runs"), 1)
+
+            recall = handlers.recall({"query": "review", "package_scope": "full"})
+            self.assertGreaterEqual(recall["recall"]["count"], 1)
+
+            replay = handlers.create_audit_replay({"focus_id": report["report_id"], "limit": "8"})
+            self.assertEqual(replay["audit_replay"]["focus_id"], report["report_id"])
+            self.assertGreaterEqual(database.count("audit_replay_runs"), 1)
+
     def test_api_handler_validates_cop_track(self) -> None:
         with TemporaryDirectory() as tmp:
             database = SQLiteJINXDatabase(Path(tmp) / "jinx.sqlite3")
@@ -364,10 +485,19 @@ class WebDatabaseFrontendTests(TestCase):
         self.assertIn("/api/admin/users", (static_root / "app.js").read_text(encoding="utf-8"))
         self.assertIn("/api/admin/licenses", (static_root / "app.js").read_text(encoding="utf-8"))
         self.assertIn("/api/admin/adapters", (static_root / "app.js").read_text(encoding="utf-8"))
+        self.assertIn("/api/admin/adapter-runs", (static_root / "app.js").read_text(encoding="utf-8"))
+        self.assertIn("/api/admin/adapters/execute", (static_root / "app.js").read_text(encoding="utf-8"))
         self.assertIn("/api/core/boundary-controls", (static_root / "app.js").read_text(encoding="utf-8"))
+        self.assertIn("/api/core/evidence-packs", (static_root / "app.js").read_text(encoding="utf-8"))
+        self.assertIn("/api/core/review-tasks", (static_root / "app.js").read_text(encoding="utf-8"))
+        self.assertIn("/api/core/memory", (static_root / "app.js").read_text(encoding="utf-8"))
+        self.assertIn("/api/core/recall", (static_root / "app.js").read_text(encoding="utf-8"))
+        self.assertIn("/api/core/audit-replay", (static_root / "app.js").read_text(encoding="utf-8"))
         self.assertIn("/api/core/policy-decisions", (static_root / "app.js").read_text(encoding="utf-8"))
         self.assertIn("/api/brain/query", (static_root / "app.js").read_text(encoding="utf-8"))
+        self.assertIn("/api/brain/doctrine", (static_root / "app.js").read_text(encoding="utf-8"))
         self.assertIn("/api/brain/chat", (static_root / "app.js").read_text(encoding="utf-8"))
+        self.assertIn("/api/brain/promote-learning", (static_root / "app.js").read_text(encoding="utf-8"))
         self.assertIn("/api/brain/chat-messages", (static_root / "app.js").read_text(encoding="utf-8"))
         self.assertIn("/api/brain/explanations", (static_root / "app.js").read_text(encoding="utf-8"))
         self.assertIn("/api/brain/options", (static_root / "app.js").read_text(encoding="utf-8"))
@@ -393,13 +523,21 @@ class WebDatabaseFrontendTests(TestCase):
         self.assertIn("Boundary Controls", (static_root / "index.html").read_text(encoding="utf-8"))
         self.assertIn("Adapter Registry", (static_root / "index.html").read_text(encoding="utf-8"))
         self.assertIn("Adapter Control", (static_root / "index.html").read_text(encoding="utf-8"))
+        self.assertIn("Evidence Packs", (static_root / "index.html").read_text(encoding="utf-8"))
+        self.assertIn("Review Tasks", (static_root / "index.html").read_text(encoding="utf-8"))
+        self.assertIn("Adapter Runs", (static_root / "index.html").read_text(encoding="utf-8"))
+        self.assertIn("Doctrine Library", (static_root / "index.html").read_text(encoding="utf-8"))
+        self.assertIn("Compartmented Memory", (static_root / "index.html").read_text(encoding="utf-8"))
+        self.assertIn("Recall Search", (static_root / "index.html").read_text(encoding="utf-8"))
         self.assertIn("Dead Letters", (static_root / "index.html").read_text(encoding="utf-8"))
         self.assertIn("Bounded Core Context", (static_root / "index.html").read_text(encoding="utf-8"))
         self.assertIn("BRAIN Options", (static_root / "index.html").read_text(encoding="utf-8"))
         self.assertIn("Learning Proposals", (static_root / "index.html").read_text(encoding="utf-8"))
+        self.assertIn("Promote Lesson", (static_root / "index.html").read_text(encoding="utf-8"))
         self.assertIn("BRAIN Explanations", (static_root / "index.html").read_text(encoding="utf-8"))
         self.assertIn("BRAIN Checklists", (static_root / "index.html").read_text(encoding="utf-8"))
         self.assertIn("Policy Decisions", (static_root / "index.html").read_text(encoding="utf-8"))
+        self.assertIn("Audit Replay", (static_root / "index.html").read_text(encoding="utf-8"))
         self.assertIn("Simulation Runs", (static_root / "index.html").read_text(encoding="utf-8"))
         self.assertIn("C5ISR Review Center", (static_root / "index.html").read_text(encoding="utf-8"))
         self.assertIn("Core Analysis Runs", (static_root / "index.html").read_text(encoding="utf-8"))

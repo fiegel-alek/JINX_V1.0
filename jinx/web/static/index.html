@@ -21,6 +21,9 @@
           <a href="#reports">Reports</a>
           <a href="#fabric">FABRIC</a>
           <a href="#governance">Governance</a>
+          <a href="#evidence">Evidence</a>
+          <a href="#memory">Memory</a>
+          <a href="#replay">Replay</a>
           <a href="#advisories">Advisories</a>
           <a href="#modules">Modules</a>
           <a href="#sim">SIM</a>
@@ -347,6 +350,179 @@
           </section>
         </section>
 
+        <section class="data-grid" id="evidence">
+          <section class="panel">
+            <div class="section-head">
+              <h2>Evidence Packs</h2>
+              <span id="evidence-pack-count">0</span>
+            </div>
+            <div id="evidence-pack-list" class="list empty">No evidence packs</div>
+          </section>
+          <section class="panel">
+            <div class="section-head">
+              <h2>Review Tasks</h2>
+              <span id="review-task-count">0</span>
+            </div>
+            <div id="review-task-list" class="list empty">No review tasks</div>
+          </section>
+          <section class="panel">
+            <div class="section-head">
+              <h2>Adapter Runs</h2>
+              <span id="adapter-run-count">0</span>
+            </div>
+            <form id="adapter-execute-form" class="form compact-form">
+              <div class="form-grid">
+                <label>
+                  Adapter ID
+                  <input name="adapter_id" value="adapter-weather-open" required />
+                </label>
+                <label>
+                  Initiated By
+                  <input name="initiated_by" value="systemadministrator" required />
+                </label>
+              </div>
+              <label>
+                Summary
+                <textarea name="summary">Synthetic governed adapter execution for advisory validation.</textarea>
+              </label>
+              <button type="submit">Execute Adapter</button>
+            </form>
+            <div id="adapter-run-list" class="list empty">No adapter runs</div>
+          </section>
+        </section>
+
+        <section class="data-grid" id="memory">
+          <section class="panel">
+            <div class="section-head">
+              <h2>Doctrine Library</h2>
+              <span id="doctrine-count">0</span>
+            </div>
+            <form id="doctrine-form" class="form compact-form">
+              <div class="form-grid">
+                <label>
+                  Title
+                  <input name="title" value="Synthetic review checklist note" required />
+                </label>
+                <label>
+                  Scope
+                  <select name="scope">
+                    <option value="lesson_learned">Lesson learned</option>
+                    <option value="review_checklist">Review checklist</option>
+                    <option value="doctrine">Doctrine</option>
+                    <option value="tacsop">TACSOP</option>
+                    <option value="sop">SOP</option>
+                  </select>
+                </label>
+              </div>
+              <label>
+                Summary
+                <textarea name="summary">Synthetic advisory reference for human review and doctrine reachback.</textarea>
+              </label>
+              <div class="form-grid">
+                <label>
+                  Source
+                  <input name="source" value="ops-manual-entry" />
+                </label>
+                <label>
+                  Tags
+                  <input name="tags" value="review,lesson,advisory" />
+                </label>
+              </div>
+              <input type="hidden" name="applicability" value="brain_reference,human_review" />
+              <input type="hidden" name="restrictions" value="Synthetic or explicitly authorized advisory reference only.,Does not authorize operational action." />
+              <button type="submit">Register Doctrine</button>
+            </form>
+            <div id="doctrine-list" class="list empty">No doctrine records</div>
+          </section>
+          <section class="panel">
+            <div class="section-head">
+              <h2>Compartmented Memory</h2>
+              <span id="memory-count">0</span>
+            </div>
+            <form id="memory-form" class="form compact-form">
+              <div class="form-grid">
+                <label>
+                  Compartment
+                  <input name="compartment" value="core.shared" required />
+                </label>
+                <label>
+                  Package
+                  <select name="package_scope">
+                    <option value="full">Full</option>
+                    <option value="c5isr">C5ISR</option>
+                    <option value="net">NET</option>
+                    <option value="intel">INTEL</option>
+                    <option value="sim">SIM</option>
+                    <option value="operator">Operator</option>
+                  </select>
+                </label>
+              </div>
+              <div class="form-grid">
+                <label>
+                  Title
+                  <input name="title" value="Synthetic lesson capture" required />
+                </label>
+                <label>
+                  Tags
+                  <input name="tags" value="lesson,review" />
+                </label>
+              </div>
+              <label>
+                Summary
+                <textarea name="summary">Synthetic memory capture for advisory review and later recall.</textarea>
+              </label>
+              <div class="form-grid">
+                <label>
+                  Source Kind
+                  <input name="source_kind" value="manual_memory" />
+                </label>
+                <label>
+                  Source ID
+                  <input name="source_id" value="manual-entry" />
+                </label>
+                <label>
+                  Created By
+                  <input name="created_by" value="systemadministrator" />
+                </label>
+                <label>
+                  Review State
+                  <input name="review_state" value="captured" />
+                </label>
+              </div>
+              <button type="submit">Capture Memory</button>
+            </form>
+            <div id="memory-list" class="list empty">No memory records</div>
+          </section>
+          <section class="panel">
+            <div class="section-head">
+              <h2>Recall Search</h2>
+              <span id="recall-count">0</span>
+            </div>
+            <form id="recall-form" class="form compact-form">
+              <div class="form-grid">
+                <label>
+                  Query
+                  <input name="query" value="review" />
+                </label>
+                <label>
+                  Package Scope
+                  <select name="package_scope">
+                    <option value="">All</option>
+                    <option value="full">Full</option>
+                    <option value="c5isr">C5ISR</option>
+                    <option value="net">NET</option>
+                    <option value="intel">INTEL</option>
+                    <option value="sim">SIM</option>
+                    <option value="operator">Operator</option>
+                  </select>
+                </label>
+              </div>
+              <button type="submit">Run Recall</button>
+            </form>
+            <div id="recall-list" class="list empty">No recall results</div>
+          </section>
+        </section>
+
         <section class="data-grid">
           <section class="panel">
             <div class="section-head">
@@ -368,6 +544,40 @@
               <span id="learning-proposal-count">0</span>
             </div>
             <div id="learning-proposal-list" class="list empty">No learner proposals</div>
+            <form id="learning-promotion-form" class="form compact-form">
+              <div class="form-grid">
+                <label>
+                  Proposal ID
+                  <input name="proposal_id" value="" />
+                </label>
+                <label>
+                  Scope
+                  <select name="scope">
+                    <option value="lesson_learned">Lesson learned</option>
+                    <option value="review_checklist">Review checklist</option>
+                    <option value="doctrine">Doctrine</option>
+                    <option value="tacsop">TACSOP</option>
+                    <option value="sop">SOP</option>
+                  </select>
+                </label>
+              </div>
+              <div class="form-grid">
+                <label>
+                  Title
+                  <input name="title" value="Promoted advisory lesson" />
+                </label>
+                <label>
+                  Reviewer
+                  <input name="reviewer_id" value="systemadministrator" />
+                </label>
+              </div>
+              <label>
+                Note
+                <textarea name="note">Promote reviewed lesson into the doctrine library.</textarea>
+              </label>
+              <input type="hidden" name="tags" value="lesson,promoted,advisory" />
+              <button type="submit">Promote Lesson</button>
+            </form>
           </section>
         </section>
 
@@ -714,7 +924,7 @@
           </section>
         </section>
 
-        <section class="data-grid">
+        <section class="data-grid" id="replay">
           <section class="panel">
             <div class="section-head">
               <h2>Audit Trail</h2>
@@ -742,6 +952,26 @@
               <span id="boundary-count">0</span>
             </div>
             <div id="boundary-list" class="list empty">No boundary data</div>
+          </section>
+          <section class="panel">
+            <div class="section-head">
+              <h2>Audit Replay</h2>
+              <span id="audit-replay-count">0</span>
+            </div>
+            <form id="audit-replay-form" class="form compact-form">
+              <div class="form-grid">
+                <label>
+                  Focus ID
+                  <input name="focus_id" value="" />
+                </label>
+                <label>
+                  Limit
+                  <input name="limit" value="12" />
+                </label>
+              </div>
+              <button type="submit">Generate Replay</button>
+            </form>
+            <div id="audit-replay-list" class="list empty">No replay generated</div>
           </section>
         </section>
 

@@ -180,6 +180,10 @@ class JINXRequestHandler(SimpleHTTPRequestHandler):
                 self._require_permission("admin:all")
                 self._send_json(self.server.api_handlers.adapters())
                 return
+            if parsed.path == "/api/admin/adapter-runs":
+                self._require_permission("admin:all")
+                self._send_json(self.server.api_handlers.adapter_runs())
+                return
             if parsed.path == "/api/cop":
                 self._require_permission("cop:read")
                 documents = self.server.database.list_documents("cop_states")
@@ -267,6 +271,22 @@ class JINXRequestHandler(SimpleHTTPRequestHandler):
                 self._require_permission("ops:read")
                 self._send_json(self.server.api_handlers.service.fabric_monitor_document())
                 return
+            if parsed.path == "/api/core/evidence-packs":
+                self._require_permission("audit:read")
+                self._send_json(self.server.api_handlers.evidence_packs())
+                return
+            if parsed.path == "/api/core/review-tasks":
+                self._require_permission("ops:read")
+                self._send_json(self.server.api_handlers.review_tasks())
+                return
+            if parsed.path == "/api/core/memory":
+                self._require_permission("audit:read")
+                self._send_json(self.server.api_handlers.memory())
+                return
+            if parsed.path == "/api/core/recall":
+                self._require_permission("brain:query")
+                self._send_json(self.server.api_handlers.recall({}))
+                return
             if parsed.path == "/api/core/policy-decisions":
                 self._require_permission("audit:read")
                 self._send_json(self.server.api_handlers.service.policy_decisions_document())
@@ -274,6 +294,10 @@ class JINXRequestHandler(SimpleHTTPRequestHandler):
             if parsed.path == "/api/core/audit":
                 self._require_permission("audit:read")
                 self._send_json(self.server.api_handlers.service.audit_document())
+                return
+            if parsed.path == "/api/core/audit-replay":
+                self._require_permission("audit:read")
+                self._send_json(self.server.api_handlers.audit_replay())
                 return
             if parsed.path == "/api/core/provenance":
                 self._require_permission("audit:read")
@@ -290,6 +314,10 @@ class JINXRequestHandler(SimpleHTTPRequestHandler):
             if parsed.path == "/api/brain/references":
                 self._require_permission("brain:query")
                 self._send_json(self.server.api_handlers.query_brain({"tags": "review"}))
+                return
+            if parsed.path == "/api/brain/doctrine":
+                self._require_permission("brain:query")
+                self._send_json(self.server.api_handlers.doctrine_library())
                 return
             if parsed.path == "/api/brain/chat-sessions":
                 self._require_permission("brain:chat")
@@ -450,6 +478,10 @@ class JINXRequestHandler(SimpleHTTPRequestHandler):
                 self._require_permission("admin:all")
                 self._send_json(self.server.api_handlers.update_adapter(payload), status=200)
                 return
+            if parsed.path == "/api/admin/adapters/execute":
+                self._require_permission("admin:all")
+                self._send_json(self.server.api_handlers.execute_adapter(payload), status=201)
+                return
             if parsed.path == "/api/operator-reports":
                 self._require_permission("operator_report:submit")
                 self._send_json(self.server.api_handlers.submit_operator_report(payload), status=201)
@@ -500,9 +532,33 @@ class JINXRequestHandler(SimpleHTTPRequestHandler):
                 self._require_permission("brain:query")
                 self._send_json(self.server.api_handlers.query_brain(payload), status=200)
                 return
+            if parsed.path == "/api/brain/doctrine":
+                self._require_permission("brain:query")
+                self._send_json(self.server.api_handlers.register_doctrine(payload), status=201)
+                return
             if parsed.path == "/api/brain/chat":
                 self._require_permission("brain:chat")
                 self._send_json(self.server.api_handlers.ask_brain_chat(payload), status=201)
+                return
+            if parsed.path == "/api/brain/promote-learning":
+                self._require_permission("admin:all")
+                self._send_json(self.server.api_handlers.promote_learning_proposal(payload), status=200)
+                return
+            if parsed.path == "/api/core/review-tasks":
+                self._require_permission("ops:read")
+                self._send_json(self.server.api_handlers.update_review_task(payload), status=200)
+                return
+            if parsed.path == "/api/core/memory":
+                self._require_permission("audit:read")
+                self._send_json(self.server.api_handlers.write_memory(payload), status=201)
+                return
+            if parsed.path == "/api/core/recall":
+                self._require_permission("brain:query")
+                self._send_json(self.server.api_handlers.recall(payload), status=200)
+                return
+            if parsed.path == "/api/core/audit-replay":
+                self._require_permission("audit:read")
+                self._send_json(self.server.api_handlers.create_audit_replay(payload), status=201)
                 return
             if parsed.path == "/api/sim/demo":
                 self._require_permission("sim:inject")

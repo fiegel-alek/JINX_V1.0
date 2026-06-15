@@ -6,6 +6,13 @@ const els = {
   identityUserList: document.querySelector("#identity-user-list"),
   boundaryControlList: document.querySelector("#boundary-control-list"),
   adapterList: document.querySelector("#adapter-list"),
+  evidencePackList: document.querySelector("#evidence-pack-list"),
+  reviewTaskList: document.querySelector("#review-task-list"),
+  doctrineList: document.querySelector("#doctrine-list"),
+  memoryList: document.querySelector("#memory-list"),
+  recallList: document.querySelector("#recall-list"),
+  adapterRunList: document.querySelector("#adapter-run-list"),
+  auditReplayList: document.querySelector("#audit-replay-list"),
   copName: document.querySelector("#cop-name"),
   copMap: document.querySelector("#cop-map"),
   trackList: document.querySelector("#track-list"),
@@ -51,6 +58,7 @@ const els = {
   licenseForm: document.querySelector("#license-form"),
   identityUserForm: document.querySelector("#identity-user-form"),
   adapterForm: document.querySelector("#adapter-form"),
+  adapterExecuteForm: document.querySelector("#adapter-execute-form"),
   reportForm: document.querySelector("#report-form"),
   commandForm: document.querySelector("#command-form"),
   intelForm: document.querySelector("#intel-form"),
@@ -58,6 +66,11 @@ const els = {
   netPlanForm: document.querySelector("#net-plan-form"),
   brainQueryForm: document.querySelector("#brain-query-form"),
   brainChatForm: document.querySelector("#brain-chat-form"),
+  doctrineForm: document.querySelector("#doctrine-form"),
+  memoryForm: document.querySelector("#memory-form"),
+  recallForm: document.querySelector("#recall-form"),
+  learningPromotionForm: document.querySelector("#learning-promotion-form"),
+  auditReplayForm: document.querySelector("#audit-replay-form"),
   refreshButton: document.querySelector("#refresh-button"),
   demoButton: document.querySelector("#demo-button"),
   missionButton: document.querySelector("#mission-button"),
@@ -83,6 +96,20 @@ function setStatus(ok, text) {
 
 function activeRole() {
   return els.roleSelect.value;
+}
+
+function activeReviewerId() {
+  const mapping = {
+    commander: "commander-alpha",
+    c5isr_manager: "c5isr-manager-alpha",
+    network_manager: "net-manager-alpha",
+    intel_analyst: "intel-alpha",
+    simulation_operator: "sim-operator-alpha",
+    system_administrator: "systemadministrator",
+    auditor: "auditor-alpha",
+    operator: "operator-alpha",
+  };
+  return mapping[activeRole()] || "systemadministrator";
 }
 
 function activeSessionToken() {
@@ -241,7 +268,7 @@ function reviewLabel(state = "new") {
 }
 
 async function updateReportReview(reportId, state) {
-  const reviewer = activeRole() === "commander" ? "commander-alpha" : "c5isr-manager-alpha";
+  const reviewer = activeReviewerId();
   const note = `Set to ${reviewLabel(state)} from COP manager.`;
   const response = await postJSON("/api/operator-reports/review", {
     report_id: reportId,
@@ -641,6 +668,107 @@ function renderAdapters(adapterState) {
   `);
 }
 
+function renderEvidencePacks(records, summary = {}) {
+  document.querySelector("#evidence-pack-count").textContent = summary.total ?? records.length;
+  renderList(els.evidencePackList, records.slice(-8).reverse(), "No evidence packs", (record) => `
+    <article class="item ops">
+      <strong>${escapeHTML(record.source_kind)} · ${escapeHTML(record.confidence_band)}</strong>
+      <span>${escapeHTML(record.title)}</span>
+      <span>${escapeHTML(record.summary)}</span>
+      <span>${escapeHTML(record.source_module)} · review ${escapeHTML(record.recommended_review_role)}</span>
+    </article>
+  `);
+}
+
+function renderReviewTasks(records, summary = {}) {
+  document.querySelector("#review-task-count").textContent = summary.open ?? records.length;
+  renderList(els.reviewTaskList, records.slice(-8).reverse(), "No review tasks", (record) => `
+    <article class="item ops">
+      <strong>${escapeHTML(record.title)} · ${escapeHTML(record.state)}</strong>
+      <span>${escapeHTML(record.summary)}</span>
+      <span>${escapeHTML(record.source_kind)} · ${escapeHTML(record.assigned_role)} · confidence ${escapeHTML(record.confidence)}</span>
+      <div class="review-row">
+        <button type="button" data-review-task="${escapeHTML(record.id)}" data-task-state="acknowledged">Acknowledge</button>
+        <button type="button" data-review-task="${escapeHTML(record.id)}" data-task-state="validated">Validate</button>
+        <button type="button" data-review-task="${escapeHTML(record.id)}" data-task-state="needs_more_info">Need info</button>
+        <button type="button" data-review-task="${escapeHTML(record.id)}" data-task-state="rejected">Reject</button>
+      </div>
+    </article>
+  `);
+}
+
+function renderDoctrine(records, summary = {}) {
+  document.querySelector("#doctrine-count").textContent = summary.total ?? records.length;
+  renderList(els.doctrineList, records.slice(-8).reverse(), "No doctrine records", (record) => `
+    <article class="item brain">
+      <strong>${escapeHTML(record.title)} · ${escapeHTML(record.scope)}</strong>
+      <span>${escapeHTML(record.summary)}</span>
+      <span>${escapeHTML(record.source)} · tags ${escapeHTML((record.tags || []).join(", ") || "none")}</span>
+    </article>
+  `);
+}
+
+function renderMemory(memory) {
+  const records = memory.records || [];
+  const compartments = memory.compartments || [];
+  document.querySelector("#memory-count").textContent = records.length;
+  renderList(els.memoryList, records.slice(-8).reverse(), "No memory records", (record) => `
+    <article class="item ops">
+      <strong>${escapeHTML(record.title)} · ${escapeHTML(record.compartment)}</strong>
+      <span>${escapeHTML(record.summary)}</span>
+      <span>${escapeHTML(record.source_kind)} · ${escapeHTML(record.review_state)} · tags ${escapeHTML((record.tags || []).join(", ") || "none")}</span>
+    </article>
+  `);
+  if (!records.length && compartments.length) {
+    renderList(els.memoryList, compartments, "No memory records", (record) => `
+      <article class="item ops">
+        <strong>${escapeHTML(record.name)}</strong>
+        <span>${escapeHTML(record.count)} records</span>
+      </article>
+    `);
+  }
+}
+
+function renderRecall(recall) {
+  const results = recall.results || [];
+  document.querySelector("#recall-count").textContent = recall.count ?? results.length;
+  renderList(els.recallList, results, "No recall results", (record) => `
+    <article class="item ops">
+      <strong>${escapeHTML(record.kind)} · ${escapeHTML(record.title)}</strong>
+      <span>${escapeHTML(record.summary)}</span>
+      <span>${escapeHTML(record.package_scope)}</span>
+    </article>
+  `);
+}
+
+function renderAdapterRuns(records) {
+  document.querySelector("#adapter-run-count").textContent = records.length;
+  renderList(els.adapterRunList, records.slice(-8).reverse(), "No adapter runs", (record) => `
+    <article class="item ops">
+      <strong>${escapeHTML(record.adapter_name)} · ${escapeHTML(record.status)}</strong>
+      <span>${escapeHTML(record.target_module)} · ${escapeHTML(record.initiated_by)} · ${escapeHTML(record.data_mode)}</span>
+      <span>${escapeHTML(record.summary)}</span>
+    </article>
+  `);
+}
+
+function renderAuditReplay(replay) {
+  if (!replay || !replay.id) {
+    document.querySelector("#audit-replay-count").textContent = "0";
+    els.auditReplayList.className = "list empty";
+    els.auditReplayList.textContent = "No replay generated";
+    return;
+  }
+  document.querySelector("#audit-replay-count").textContent = replay.summary?.timeline_events ?? 0;
+  renderList(els.auditReplayList, [replay], "No replay generated", (record) => `
+    <article class="item audit">
+      <strong>${escapeHTML(record.focus_id)} · ${escapeHTML(record.id)}</strong>
+      <span>timeline ${escapeHTML(record.summary?.timeline_events ?? 0)} · audit ${escapeHTML(record.summary?.audit_records ?? 0)} · evidence ${escapeHTML(record.summary?.evidence_packs ?? 0)}</span>
+      <span>review tasks ${escapeHTML(record.summary?.review_tasks ?? 0)} · memory ${escapeHTML(record.summary?.memory_records ?? 0)} · fabric ${escapeHTML(record.summary?.fabric_messages ?? 0)}</span>
+    </article>
+  `);
+}
+
 function renderCoreContext(context) {
   document.querySelector("#core-context-count").textContent = (context.provenance_refs || []).length;
   renderList(els.coreContextList, [context], "No bounded context", (record) => `
@@ -690,6 +818,10 @@ function renderBrainChecklists(records) {
 
 function renderLearningProposals(records) {
   document.querySelector("#learning-proposal-count").textContent = records.length;
+  const proposalInput = els.learningPromotionForm?.querySelector('[name="proposal_id"]');
+  if (proposalInput && records.length && !proposalInput.value) {
+    proposalInput.value = records[records.length - 1].id;
+  }
   renderList(els.learningProposalList, records.slice(-6).reverse(), "No learner proposals", (record) => `
     <article class="item ops">
       <strong>${escapeHTML(record.proposal_type)} · ${escapeHTML(record.review_status)}</strong>
@@ -730,6 +862,12 @@ async function refreshDashboard() {
       licenseState,
       boundaryControls,
       adapters,
+      evidencePacks,
+      reviewTasks,
+      doctrineLibrary,
+      memory,
+      recall,
+      adapterRuns,
       cop,
       mission,
       layers,
@@ -753,6 +891,7 @@ async function refreshDashboard() {
       learningProposals,
       brainReferences,
       audit,
+      auditReplay,
       policyDecisions,
       provenance,
       boundaries,
@@ -773,6 +912,12 @@ async function refreshDashboard() {
       getOptionalJSON("/api/admin/licenses", { licenses: [], summary: {} }),
       getOptionalJSON("/api/core/boundary-controls", { boundary_controls: { packages: [], recent_redactions: [], recent_policy_denials: [] } }),
       getOptionalJSON("/api/admin/adapters", { adapters: [], summary: {} }),
+      getOptionalJSON("/api/core/evidence-packs", { evidence_packs: [], summary: { total: 0, by_kind: {} } }),
+      getOptionalJSON("/api/core/review-tasks", { review_tasks: [], summary: { total: 0, open: 0 } }),
+      getOptionalJSON("/api/brain/doctrine", { doctrine_library: { records: [], summary: { total: 0, scope_counts: {} } } }),
+      getOptionalJSON("/api/core/memory", { memory: { compartments: [], records: [] } }),
+      getOptionalJSON("/api/core/recall", { recall: { query: "", results: [], count: 0 } }),
+      getOptionalJSON("/api/admin/adapter-runs", { adapter_runs: [] }),
       getJSON("/api/cop"),
       getJSON("/api/mission-context"),
       getJSON("/api/cop/layers"),
@@ -796,6 +941,7 @@ async function refreshDashboard() {
       getJSON("/api/brain/learning-proposals"),
       getJSON("/api/brain/references"),
       getJSON("/api/core/audit"),
+      getOptionalJSON("/api/core/audit-replay", { audit_replay: null }),
       getJSON("/api/core/policy-decisions"),
       getJSON("/api/core/provenance"),
       getJSON("/api/core/module-boundaries"),
@@ -815,6 +961,12 @@ async function refreshDashboard() {
     renderLicenses(licenseState);
     renderBoundaryControls(boundaryControls.boundary_controls || {});
     renderAdapters(adapters);
+    renderEvidencePacks(evidencePacks.evidence_packs || [], evidencePacks.summary || {});
+    renderReviewTasks(reviewTasks.review_tasks || [], reviewTasks.summary || {});
+    renderDoctrine(doctrineLibrary.doctrine_library?.records || [], doctrineLibrary.doctrine_library?.summary || {});
+    renderMemory(memory.memory || {});
+    renderRecall(recall.recall || {});
+    renderAdapterRuns(adapterRuns.adapter_runs || []);
     renderTracks(cop);
     renderMission(mission.mission);
     renderLayers(layers.layers || []);
@@ -838,6 +990,7 @@ async function refreshDashboard() {
     renderLearningProposals(learningProposals.learning_proposals || []);
     renderBrainReferences(brainReferences.matches || []);
     renderAudit(audit.audit_records || []);
+    renderAuditReplay(auditReplay.audit_replay || null);
     renderPolicyDecisions(policyDecisions.policy_decisions || []);
     renderProvenance(provenance.provenance || []);
     renderBoundaries(boundaries);
@@ -1003,6 +1156,79 @@ els.adapterForm.addEventListener("submit", async (event) => {
   }
 });
 
+els.adapterExecuteForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const data = Object.fromEntries(new FormData(els.adapterExecuteForm).entries());
+  try {
+    const response = await postJSON("/api/admin/adapters/execute", data);
+    addActivity(`Adapter run ${response.adapter_run.id} completed with status ${response.adapter_run.status}.`);
+    await refreshDashboard();
+  } catch (error) {
+    addActivity(error.message);
+  }
+});
+
+els.doctrineForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const data = Object.fromEntries(new FormData(els.doctrineForm).entries());
+  try {
+    const response = await postJSON("/api/brain/doctrine", data);
+    addActivity(`Doctrine record ${response.doctrine_record.id} registered.`);
+    await refreshDashboard();
+  } catch (error) {
+    addActivity(error.message);
+  }
+});
+
+els.memoryForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const data = Object.fromEntries(new FormData(els.memoryForm).entries());
+  try {
+    const response = await postJSON("/api/core/memory", data);
+    addActivity(`Memory record ${response.memory_record.id} captured.`);
+    await refreshDashboard();
+  } catch (error) {
+    addActivity(error.message);
+  }
+});
+
+els.recallForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const data = Object.fromEntries(new FormData(els.recallForm).entries());
+  try {
+    const response = await postJSON("/api/core/recall", data);
+    renderRecall(response.recall || {});
+    addActivity(`Recall returned ${response.recall?.count || 0} result(s).`);
+  } catch (error) {
+    addActivity(error.message);
+  }
+});
+
+els.learningPromotionForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const data = Object.fromEntries(new FormData(els.learningPromotionForm).entries());
+  try {
+    const response = await postJSON("/api/brain/promote-learning", data);
+    addActivity(`Learning proposal ${response.learning_proposal.id} promoted to ${response.doctrine_record.id}.`);
+    await refreshDashboard();
+  } catch (error) {
+    addActivity(error.message);
+  }
+});
+
+els.auditReplayForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const data = Object.fromEntries(new FormData(els.auditReplayForm).entries());
+  try {
+    const response = await postJSON("/api/core/audit-replay", data);
+    renderAuditReplay(response.audit_replay || null);
+    addActivity(`Audit replay ${response.audit_replay.id} generated.`);
+    await refreshDashboard();
+  } catch (error) {
+    addActivity(error.message);
+  }
+});
+
 els.missionButton.addEventListener("click", async () => {
   try {
     const response = await postJSON("/api/mission-context", {
@@ -1018,13 +1244,31 @@ els.missionButton.addEventListener("click", async () => {
   }
 });
 
+els.reviewTaskList.addEventListener("click", async (event) => {
+  const button = event.target.closest("[data-review-task]");
+  if (!button) return;
+  try {
+    const response = await postJSON("/api/core/review-tasks", {
+      task_id: button.dataset.reviewTask,
+      state: button.dataset.taskState,
+      reviewer_id: activeReviewerId(),
+      note: `Review task moved to ${button.dataset.taskState} from Ops.`,
+      remember: button.dataset.taskState === "validated" ? "true" : "false",
+    });
+    addActivity(`Review task ${response.review_task.id} marked ${response.review_task.state}.`);
+    await refreshDashboard();
+  } catch (error) {
+    addActivity(error.message);
+  }
+});
+
 els.trackList.addEventListener("click", async (event) => {
   const button = event.target.closest("[data-track-validate]");
   if (!button) return;
   try {
     const response = await postJSON("/api/cop/tracks/validate", {
       entity_id: button.dataset.trackValidate,
-      reviewer_id: activeRole() === "commander" ? "commander-alpha" : "c5isr-manager-alpha",
+      reviewer_id: activeReviewerId(),
       note: "Human validation from COP manager.",
     });
     addActivity(`Track ${response.track.entity_id} marked ${response.track.lifecycle}.`);

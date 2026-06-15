@@ -259,6 +259,71 @@ class JINXAPIHandlers:
     def boundary_controls(self) -> dict[str, object]:
         return self.service.boundary_controls_document()
 
+    def evidence_packs(self) -> dict[str, object]:
+        return self.service.evidence_packs_document()
+
+    def review_tasks(self) -> dict[str, object]:
+        return self.service.review_tasks_document()
+
+    def update_review_task(self, payload: dict[str, str]) -> dict[str, object]:
+        return self.service.update_review_task(
+            task_id=payload["task_id"],
+            state=payload["state"],
+            reviewer_id=payload["reviewer_id"],
+            note=payload.get("note", ""),
+            remember=payload.get("remember", "false").lower() == "true",
+        )
+
+    def memory(self) -> dict[str, object]:
+        return self.service.memory_compartments_document()
+
+    def write_memory(self, payload: dict[str, str]) -> dict[str, object]:
+        return self.service.write_memory_record(
+            compartment=payload["compartment"],
+            package_scope=payload.get("package_scope", "full"),
+            title=payload["title"],
+            summary=payload["summary"],
+            tags=self._csv_tuple(payload.get("tags", "")),
+            source_kind=payload.get("source_kind", "manual_memory"),
+            source_id=payload.get("source_id", ""),
+            created_by=payload.get("created_by", "systemadministrator"),
+            provenance_refs=self._csv_tuple(payload.get("provenance_refs", "")),
+            review_state=payload.get("review_state", "captured"),
+        )
+
+    def recall(self, payload: dict[str, str]) -> dict[str, object]:
+        return self.service.recall_document(
+            query=payload.get("query", ""),
+            package_scope=payload.get("package_scope", ""),
+        )
+
+    def doctrine_library(self) -> dict[str, object]:
+        return self.service.doctrine_library_document()
+
+    def register_doctrine(self, payload: dict[str, str]) -> dict[str, object]:
+        return self.service.register_doctrine_record(
+            title=payload["title"],
+            scope=payload.get("scope", "lesson_learned"),
+            summary=payload["summary"],
+            source=payload.get("source", "manual_doctrine_entry"),
+            applicability=self._csv_tuple(payload.get("applicability", "")),
+            restrictions=self._csv_tuple(payload.get("restrictions", "")),
+            tags=self._csv_tuple(payload.get("tags", "")),
+        )
+
+    def promote_learning_proposal(self, payload: dict[str, str]) -> dict[str, object]:
+        return self.service.promote_learning_proposal(
+            proposal_id=payload["proposal_id"],
+            title=payload.get("title", ""),
+            scope=payload.get("scope", "lesson_learned"),
+            source=payload.get("source", ""),
+            applicability=self._csv_tuple(payload.get("applicability", "")),
+            restrictions=self._csv_tuple(payload.get("restrictions", "")),
+            tags=self._csv_tuple(payload.get("tags", "")),
+            reviewer_id=payload.get("reviewer_id", ""),
+            note=payload.get("note", ""),
+        )
+
     def adapters(self) -> dict[str, object]:
         return self.service.adapter_registry_document()
 
@@ -271,6 +336,30 @@ class JINXAPIHandlers:
             else None,
             enabled=payload.get("enabled", "").lower() == "true" if "enabled" in payload else None,
             data_mode=payload.get("data_mode", ""),
+        )
+
+    def adapter_runs(self) -> dict[str, object]:
+        return self.service.adapter_runs_document()
+
+    def execute_adapter(self, payload: dict[str, str]) -> dict[str, object]:
+        return self.service.execute_adapter(
+            adapter_id=payload["adapter_id"],
+            initiated_by=payload.get("initiated_by", "systemadministrator"),
+            summary=payload.get("summary", ""),
+        )
+
+    def audit_replay(self) -> dict[str, object]:
+        return self.service.audit_replay_document()
+
+    def create_audit_replay(self, payload: dict[str, str]) -> dict[str, object]:
+        limit_raw = payload.get("limit", "12")
+        try:
+            limit = int(limit_raw)
+        except ValueError as exc:
+            raise ValueError("limit must be an integer") from exc
+        return self.service.create_audit_replay(
+            focus_id=payload.get("focus_id", ""),
+            limit=limit,
         )
 
     def run_c5isr_scenario(self, payload: dict[str, str]) -> dict[str, object]:

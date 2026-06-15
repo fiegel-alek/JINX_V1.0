@@ -11,18 +11,18 @@ from jinx.brain.confidence import BrainConfidenceEngine
 from jinx.brain.context_builder import BoundedBrainContext, BrainContextBuilder
 from jinx.brain.explanation import BrainExplanationEngine
 from jinx.brain.knowledge.defaults import build_synthetic_doctrine_repository
-from jinx.brain.knowledge.models import DoctrineScope
+from jinx.brain.knowledge.models import DoctrineRecord, DoctrineScope
 from jinx.brain.knowledge.repository import DoctrineRepository
 from jinx.brain.learner import ConservativeLearner
 from jinx.brain.option_generation import BrainOptionGenerator
 from jinx.bus import FabricMessage, MessageRouter, RouteResult
-from jinx.common.types import DataMode, EventType, SafetyClassification
+from jinx.common.types import ConfidenceScore, DataMode, EventType, SafetyClassification
 from jinx.core.audit import AuditLog
 from jinx.core.identity.defaults import build_default_access_control
 from jinx.core.policy import PolicyEngine
 from jinx.core.persistence import SQLiteJINXDatabase
 from jinx.core.provenance import ProvenanceRecord
-from jinx.core.reasoning import CoreReasoningResult, CoreReasoningWorkflow
+from jinx.core.reasoning import CoreReasoningResult, CoreReasoningWorkflow, CoreRecommendationEngine
 from jinx.core.registry import build_default_registry
 from jinx.core.schemas import (
     ConflictPacket,
@@ -91,6 +91,7 @@ class JINXApplicationService:
         self._events: list[Event] = []
         if self.database is not None:
             self._ensure_governance_state()
+        self._refresh_brain_systems()
 
     def submit_operator_report(self, report: OperatorReport) -> OperatorReportResult:
         report_route = self.router.route(
@@ -428,6 +429,7 @@ class JINXApplicationService:
         }
 
     def brain_query_document(self, query: str = "", tags: tuple[str, ...] = ()) -> dict[str, object]:
+        self._refresh_brain_systems()
         search = self.brain_repository.search(query, tags=frozenset(tags))
         return {
             "query": search.query,
@@ -454,6 +456,7 @@ class JINXApplicationService:
         session_id: str | None = None,
         use_core_reachback: bool = True,
     ) -> dict[str, object]:
+        self._refresh_brain_systems()
         question = BrainChatQuestion(text=text, user_id=user_id, role=role, session_id=session_id)
         bounded_context = self._brain_bounded_context() if use_core_reachback else None
         context = dict(bounded_context.context) if bounded_context else {}
@@ -562,6 +565,41 @@ class JINXApplicationService:
                     "timestamp": learning_proposal.timestamp.isoformat(),
                 },
             )
+            self._save_evidence_pack(
+                source_kind="brain_answer",
+                source_id=exchange.answer.id,
+                source_module="jinx-brain",
+                package_scope="full",
+                title=f"BRAIN answer for {question.role}",
+                summary=exchange.answer.answer_text,
+                confidence_value=exchange.answer.confidence_value,
+                recommended_review_role=explanation.recommended_review_role,
+                related_ids=(question.id, *exchange.answer.references),
+                provenance_refs=tuple(exchange.answer.references),
+                assumptions=tuple(exchange.answer.assumptions),
+                uncertainty=(exchange.answer.uncertainty,),
+                redactions=tuple(explanation.redactions),
+                brain_references=tuple(exchange.answer.references),
+                allowed_actions=tuple(exchange.answer.allowed_next_steps),
+                disallowed_actions=tuple(exchange.answer.disallowed_actions),
+                tags=("brain", "chat", question.role),
+            )
+            self._save_evidence_pack(
+                source_kind="learning_proposal",
+                source_id=learning_proposal.id,
+                source_module="jinx-brain",
+                package_scope="full",
+                title="BRAIN learning proposal",
+                summary=learning_proposal.summary,
+                confidence_value=confidence.value,
+                recommended_review_role=learning_proposal.required_reviewer_role.replace("_", " "),
+                related_ids=(question.id, exchange.answer.id, *learning_proposal.evidence_refs),
+                provenance_refs=tuple(learning_proposal.evidence_refs),
+                assumptions=("Learning proposals require human approval before doctrine promotion.",),
+                uncertainty=("Proposal has not been promoted into doctrine.",),
+                brain_references=tuple(exchange.answer.references),
+                tags=("brain", "learning", "proposal"),
+            )
             self.database.save_document("brain_chat_sessions", exchange.answer.session_id, {"id": exchange.answer.session_id})
             self.database.save_document("brain_chat_messages", exchange.answer.id, document)
             self._append_timeline(
@@ -590,7 +628,139 @@ class JINXApplicationService:
     def learning_proposals_document(self) -> dict[str, object]:
         return {"learning_proposals": self.database.list_documents("learning_proposals") if self.database else []}
 
+    def doctrine_library_document(
+        self,
+        scope: str = "",
+        tags: tuple[str, ...] = (),
+    ) -> dict[str, object]:
+        self._refresh_brain_systems()
+        scope_filter = DoctrineScope(scope) if scope else None
+        tag_filter = frozenset(item for item in tags if item)
+        records = []
+        for record in self.brain_repository.all():
+            if scope_filter is not None and record.scope != scope_filter:
+                continue
+            if tag_filter and not tag_filter.issubset(record.tags):
+                continue
+            records.append(
+                {
+                    "id": record.id,
+                    "title": record.title,
+                    "scope": record.scope.value,
+                    "summary": record.summary,
+                    "source": record.source,
+                    "applicability": list(record.applicability),
+                    "restrictions": list(record.restrictions),
+                    "tags": sorted(record.tags),
+                }
+            )
+        scope_counts: dict[str, int] = {}
+        for record in records:
+            scope_counts[record["scope"]] = scope_counts.get(record["scope"], 0) + 1
+        return {
+            "doctrine_library": {
+                "records": records,
+                "summary": {
+                    "total": len(records),
+                    "scope_counts": scope_counts,
+                },
+            }
+        }
+
+    def register_doctrine_record(
+        self,
+        title: str,
+        scope: str,
+        summary: str,
+        source: str,
+        applicability: tuple[str, ...],
+        restrictions: tuple[str, ...],
+        tags: tuple[str, ...],
+    ) -> dict[str, object]:
+        if self.database is None:
+            raise ValueError("database is required for doctrine registration")
+        record = DoctrineRecord(
+            title=title,
+            scope=DoctrineScope(scope),
+            summary=summary,
+            source=source,
+            applicability=applicability,
+            restrictions=restrictions,
+            tags=frozenset(tags),
+        )
+        document = {
+            "id": record.id,
+            "title": record.title,
+            "scope": record.scope.value,
+            "summary": record.summary,
+            "source": record.source,
+            "applicability": list(record.applicability),
+            "restrictions": list(record.restrictions),
+            "tags": sorted(record.tags),
+            "created_at": datetime.now(UTC).isoformat(),
+        }
+        self.database.save_document("doctrine_library", record.id, document)
+        self._append_timeline(
+            "doctrine_record",
+            f"Doctrine record {record.title} registered for BRAIN use.",
+            {"record_id": record.id, "scope": record.scope.value},
+        )
+        self._refresh_brain_systems()
+        return {"doctrine_record": document}
+
+    def promote_learning_proposal(
+        self,
+        proposal_id: str,
+        title: str = "",
+        scope: str = DoctrineScope.LESSON_LEARNED.value,
+        source: str = "",
+        applicability: tuple[str, ...] = (),
+        restrictions: tuple[str, ...] = (),
+        tags: tuple[str, ...] = (),
+        reviewer_id: str = "",
+        note: str = "",
+    ) -> dict[str, object]:
+        if self.database is None:
+            raise ValueError("database is required for learning promotion")
+        proposal = self.database.get_document("learning_proposals", proposal_id)
+        created = self.register_doctrine_record(
+            title=title or f"Promoted lesson from {proposal_id}",
+            scope=scope,
+            summary=proposal.get("summary", "Approved learning proposal."),
+            source=source or f"learning-proposal:{proposal_id}",
+            applicability=applicability or ("after_action_review", "brain_reference", "human_review"),
+            restrictions=restrictions
+            or (
+                "Synthetic or explicitly authorized advisory reference only.",
+                "Does not authorize operational action.",
+            ),
+            tags=tags or ("lesson", "review", "advisory"),
+        )
+        proposal["review_status"] = "approved"
+        proposal["promoted_doctrine_id"] = created["doctrine_record"]["id"]
+        proposal["reviewed_by"] = reviewer_id or "systemadministrator"
+        proposal["review_note"] = note
+        proposal["reviewed_at"] = datetime.now(UTC).isoformat()
+        self.database.save_document("learning_proposals", proposal_id, proposal)
+        self._persist_memory_record(
+            compartment="brain.shared",
+            package_scope="full",
+            title=created["doctrine_record"]["title"],
+            summary=f"Learning proposal promoted into doctrine library. {proposal.get('summary', '')}",
+            tags=("lesson", "promoted", "brain"),
+            source_kind="learning_proposal",
+            source_id=proposal_id,
+            created_by=reviewer_id or "systemadministrator",
+            provenance_refs=tuple(proposal.get("evidence_refs", ())),
+            review_state="approved",
+        )
+        return {
+            "learning_proposal": proposal,
+            "doctrine_record": created["doctrine_record"],
+        }
+
     def brain_checklists_document(self) -> dict[str, object]:
+        self._refresh_brain_systems()
         records = [
             record
             for record in self.brain_repository.all()
@@ -610,6 +780,331 @@ class JINXApplicationService:
                 for record in records
             ]
         }
+
+    def evidence_packs_document(self, package_scope: str = "", source_kind: str = "") -> dict[str, object]:
+        if self.database is None:
+            return {"evidence_packs": [], "summary": {"total": 0, "by_kind": {}}}
+        records = list(self.database.list_documents("evidence_packs"))
+        if package_scope:
+            records = [record for record in records if record.get("package_scope") in {package_scope, "full"}]
+        if source_kind:
+            records = [record for record in records if record.get("source_kind") == source_kind]
+        by_kind: dict[str, int] = {}
+        for record in records:
+            kind = str(record.get("source_kind", "unknown"))
+            by_kind[kind] = by_kind.get(kind, 0) + 1
+        return {"evidence_packs": records, "summary": {"total": len(records), "by_kind": by_kind}}
+
+    def review_tasks_document(self, package_scope: str = "", state: str = "") -> dict[str, object]:
+        self._sync_review_tasks()
+        if self.database is None:
+            return {"review_tasks": [], "summary": {"total": 0, "open": 0}}
+        records = list(self.database.list_documents("review_tasks"))
+        if package_scope:
+            records = [record for record in records if record.get("package_scope") in {package_scope, "full"}]
+        if state:
+            records = [record for record in records if record.get("state") == state]
+        open_count = sum(1 for record in records if record.get("state") not in {"validated", "closed", "rejected"})
+        return {"review_tasks": records, "summary": {"total": len(records), "open": open_count}}
+
+    def update_review_task(
+        self,
+        task_id: str,
+        state: str,
+        reviewer_id: str,
+        note: str = "",
+        remember: bool = False,
+    ) -> dict[str, object]:
+        self._sync_review_tasks()
+        if self.database is None:
+            raise ValueError("database is required for review workflow")
+        allowed_states = {"new", "acknowledged", "validated", "rejected", "needs_more_info", "closed"}
+        if state not in allowed_states:
+            raise ValueError(f"invalid review task state: {state}")
+        task = self.database.get_document("review_tasks", task_id)
+        history = list(task.get("history", []))
+        history.append(
+            {
+                "state": state,
+                "reviewer_id": reviewer_id,
+                "note": note,
+                "timestamp": datetime.now(UTC).isoformat(),
+            }
+        )
+        task["state"] = state
+        task["reviewed_by"] = reviewer_id
+        task["last_note"] = note
+        task["history"] = history
+        task["updated_at"] = datetime.now(UTC).isoformat()
+        if state == "acknowledged":
+            task["acknowledged_by"] = reviewer_id
+        self.database.save_document("review_tasks", task_id, task)
+        self._apply_review_state_to_source(task, state, reviewer_id, note)
+        if remember or state in {"validated", "rejected"}:
+            self._persist_memory_record(
+                compartment=self._memory_compartment_for_package(str(task.get("package_scope", "full"))),
+                package_scope=str(task.get("package_scope", "full")),
+                title=str(task.get("title", task_id)),
+                summary=note or str(task.get("summary", "")),
+                tags=(str(task.get("source_kind", "review")), "review"),
+                source_kind="review_task",
+                source_id=task_id,
+                created_by=reviewer_id,
+                provenance_refs=tuple(task.get("provenance_refs", ())),
+                review_state=state,
+            )
+        self._append_timeline(
+            "review_task",
+            f"Review task {task_id} marked {state}.",
+            {"task_id": task_id, "reviewer_id": reviewer_id, "state": state},
+        )
+        return {"review_task": task}
+
+    def memory_compartments_document(self, package_scope: str = "") -> dict[str, object]:
+        if self.database is None:
+            return {"memory": {"compartments": [], "records": []}}
+        records = list(self.database.list_documents("compartment_memories"))
+        if package_scope:
+            records = [record for record in records if record.get("package_scope") in {package_scope, "full"}]
+        compartment_counts: dict[str, int] = {}
+        for record in records:
+            compartment = str(record.get("compartment", "unknown"))
+            compartment_counts[compartment] = compartment_counts.get(compartment, 0) + 1
+        compartments = [
+            {"name": name, "count": count}
+            for name, count in sorted(compartment_counts.items(), key=lambda item: item[0])
+        ]
+        return {"memory": {"compartments": compartments, "records": records}}
+
+    def write_memory_record(
+        self,
+        compartment: str,
+        package_scope: str,
+        title: str,
+        summary: str,
+        tags: tuple[str, ...],
+        source_kind: str,
+        source_id: str,
+        created_by: str,
+        provenance_refs: tuple[str, ...] = (),
+        review_state: str = "captured",
+    ) -> dict[str, object]:
+        document = self._persist_memory_record(
+            compartment=compartment,
+            package_scope=package_scope,
+            title=title,
+            summary=summary,
+            tags=tags,
+            source_kind=source_kind,
+            source_id=source_id,
+            created_by=created_by,
+            provenance_refs=provenance_refs,
+            review_state=review_state,
+        )
+        return {"memory_record": document}
+
+    def recall_document(self, query: str, package_scope: str = "") -> dict[str, object]:
+        query_text = query.strip().lower()
+        results: list[dict[str, object]] = []
+        if self.database is not None:
+            for record in self.database.list_documents("evidence_packs"):
+                if package_scope and record.get("package_scope") not in {package_scope, "full"}:
+                    continue
+                if self._matches_recall_query(query_text, record, ("title", "summary", "source_kind", "recommended_review_role")):
+                    results.append(
+                        {
+                            "kind": "evidence_pack",
+                            "id": record["id"],
+                            "title": record.get("title", record["id"]),
+                            "summary": record.get("summary", ""),
+                            "package_scope": record.get("package_scope", "full"),
+                        }
+                    )
+            for record in self.database.list_documents("review_tasks"):
+                if package_scope and record.get("package_scope") not in {package_scope, "full"}:
+                    continue
+                if self._matches_recall_query(query_text, record, ("title", "summary", "state", "assigned_role")):
+                    results.append(
+                        {
+                            "kind": "review_task",
+                            "id": record["id"],
+                            "title": record.get("title", record["id"]),
+                            "summary": record.get("summary", ""),
+                            "package_scope": record.get("package_scope", "full"),
+                        }
+                    )
+            for record in self.database.list_documents("compartment_memories"):
+                if package_scope and record.get("package_scope") not in {package_scope, "full"}:
+                    continue
+                if self._matches_recall_query(query_text, record, ("title", "summary", "compartment")):
+                    results.append(
+                        {
+                            "kind": "memory_record",
+                            "id": record["id"],
+                            "title": record.get("title", record["id"]),
+                            "summary": record.get("summary", ""),
+                            "package_scope": record.get("package_scope", "full"),
+                        }
+                    )
+        for record in self.doctrine_library_document()["doctrine_library"]["records"]:
+            if self._matches_recall_query(query_text, record, ("title", "summary", "scope", "source")):
+                results.append(
+                    {
+                        "kind": "doctrine_record",
+                        "id": record["id"],
+                        "title": record["title"],
+                        "summary": record["summary"],
+                        "package_scope": "full",
+                    }
+                )
+        return {"recall": {"query": query, "results": results[:40], "count": len(results)}}
+
+    def adapter_runs_document(self) -> dict[str, object]:
+        return {"adapter_runs": self.database.list_documents("adapter_runs") if self.database else []}
+
+    def execute_adapter(
+        self,
+        adapter_id: str,
+        initiated_by: str,
+        summary: str = "",
+    ) -> dict[str, object]:
+        self._ensure_governance_state()
+        if self.database is None:
+            raise ValueError("database is required for adapter execution")
+        adapter = self._evaluated_adapter_document(self._adapter_document(adapter_id))
+        run_id = f"adapter-run-{uuid4().hex[:12]}"
+        status = "blocked"
+        produced: list[str] = []
+        notes = summary or str(adapter.get("notes", ""))
+        if adapter.get("enabled") and adapter.get("gate_allowed") and adapter.get("policy_allowed"):
+            handler = self._api_handler()
+            status = "completed"
+            if adapter_id == "adapter-weather-open":
+                response = handler.submit_intelligence_summary(
+                    {
+                        "source_category": "open_weather_stub",
+                        "summary": "Open weather stub indicates synthetic route visibility and weather constraints for human review.",
+                        "reliability": "0.66",
+                        "related_locations": "Route Alpha,Area Alpha",
+                    }
+                )
+                produced.extend([response["summary_id"], *response["impact_ids"]])
+                notes = "Adapter run created a synthetic weather-context INTEL summary."
+            elif adapter_id == "adapter-intel-summary":
+                response = handler.submit_intelligence_summary(
+                    {
+                        "source_category": "synthetic_adapter_summary",
+                        "summary": "Synthetic adapter summary created an analyst review packet for doctrine and memory testing.",
+                        "reliability": "0.7",
+                        "related_locations": "Area Alpha",
+                    }
+                )
+                produced.extend([response["summary_id"], *response["impact_ids"]])
+                notes = "Adapter run created a synthetic intelligence summary."
+            elif adapter_id == "adapter-network-plan":
+                response = handler.submit_network_plan(
+                    {
+                        "name": "Adapter Generated Relay Plan",
+                        "node_ids": "node-alpha,node-bravo",
+                        "timeslots": "slot-01:node-alpha,slot-01:node-bravo",
+                        "los_links": "node-alpha>node-bravo",
+                        "los_status": "degraded",
+                        "los_rationale": "Synthetic adapter path generated this plan for human review.",
+                    }
+                )
+                produced.extend([response["plan_id"], response["validation_run_id"], *response["issue_ids"]])
+                notes = "Adapter run created a synthetic network plan and validation run."
+            elif adapter_id == "adapter-geospatial-mock":
+                response = self.set_mission_context(
+                    MissionContext(
+                        mission_statement="Synthetic geospatial adapter refreshed route and named-area context.",
+                        commander_intent="Preserve advisory traceability.",
+                        tasks=(
+                            MissionTask(
+                                task_id="task-geo-alpha",
+                                title="Synthetic geospatial overlay refresh",
+                                purpose="Refresh named-area context for review.",
+                                assigned_to="c5isr-manager-alpha",
+                                route="Route Alpha",
+                                named_area="Area Alpha",
+                                timeline="T+00 to T+45",
+                                constraints=("Synthetic data only.", "Human review required."),
+                            ),
+                        ),
+                        named_areas=("Area Alpha",),
+                        routes=("Route Alpha",),
+                        timeline=("T+00 to T+45",),
+                        constraints=("Synthetic overlay only.",),
+                        assumptions=("Geospatial adapter execution is mock only.",),
+                        missing_information=("Human map validation.",),
+                        data_mode=DataMode.MOCK,
+                        provenance=self._synthetic_provenance("jinx-adapter.geospatial"),
+                    )
+                )
+                produced.append(str(response["id"]))
+                notes = "Adapter run refreshed synthetic mission/geospatial context."
+            elif adapter.get("data_mode") == DataMode.LIVE_CONTROLLED_ADAPTER.value:
+                status = "stub_ready"
+                notes = (
+                    "Controlled live adapter path was exercised as a governed stub only. "
+                    "No external system connection or tasking occurred."
+                )
+            else:
+                notes = "Adapter execution completed with a governed synthetic no-op."
+        document = {
+            "id": run_id,
+            "adapter_id": adapter_id,
+            "adapter_name": adapter.get("name"),
+            "target_module": adapter.get("target_module"),
+            "status": status,
+            "initiated_by": initiated_by,
+            "data_mode": adapter.get("data_mode"),
+            "policy_allowed": adapter.get("policy_allowed"),
+            "gate_allowed": adapter.get("gate_allowed"),
+            "explicitly_authorized": adapter.get("explicitly_authorized"),
+            "produced_records": produced,
+            "summary": notes,
+            "timestamp": datetime.now(UTC).isoformat(),
+        }
+        self.database.save_document("adapter_runs", run_id, document)
+        self._save_evidence_pack(
+            source_kind="adapter_run",
+            source_id=run_id,
+            source_module=str(adapter.get("target_module", "jinx-core")),
+            package_scope="full",
+            title=f"Adapter run {adapter.get('name', adapter_id)}",
+            summary=notes,
+            confidence_value=0.61 if status == "completed" else 0.42,
+            recommended_review_role="system administrator",
+            related_ids=tuple(produced),
+            provenance_refs=(adapter_id,),
+            assumptions=("Adapter execution remains synthetic or controlled-stub only.",),
+            uncertainty=("No live external integration was performed.",),
+            tags=("adapter", "execution", status),
+        )
+        self._append_timeline(
+            "adapter_run",
+            f"Adapter {adapter.get('name', adapter_id)} executed with status {status}.",
+            {"adapter_run_id": run_id, "adapter_id": adapter_id},
+        )
+        return {"adapter_run": document}
+
+    def audit_replay_document(self) -> dict[str, object]:
+        if self.database is not None and self.database.count("audit_replay_runs") > 0:
+            return {"audit_replay": self.database.list_documents("audit_replay_runs")[-1]}
+        return {"audit_replay": self._build_audit_replay_document()}
+
+    def create_audit_replay(self, focus_id: str = "", limit: int = 12) -> dict[str, object]:
+        if self.database is None:
+            raise ValueError("database is required for audit replay")
+        replay = self._build_audit_replay_document(focus_id=focus_id, limit=limit)
+        self.database.save_document("audit_replay_runs", replay["id"], replay)
+        self._append_timeline(
+            "audit_replay",
+            "After-action audit replay generated for human review.",
+            {"audit_replay_id": replay["id"], "focus_id": focus_id},
+        )
+        return {"audit_replay": replay}
 
     def network_plans_document(self) -> dict[str, object]:
         return {"network_plans": self.database.list_documents("network_plans") if self.database else []}
@@ -1462,6 +1957,443 @@ class JINXApplicationService:
 
     def _licensed_module_names(self) -> frozenset[str]:
         return frozenset(module["name"] for module in self.module_boundary_document()["modules"])
+
+    def _refresh_brain_systems(self) -> None:
+        repository = build_synthetic_doctrine_repository()
+        for record in self._doctrine_records_from_database():
+            try:
+                repository.add(record)
+            except ValueError:
+                continue
+        self.brain_repository = repository
+        self.brain_chat = BrainChatEngine(self.brain_repository)
+        self.core_reasoning = CoreReasoningWorkflow(
+            self.router,
+            recommendation_engine=CoreRecommendationEngine(doctrine_repository=self.brain_repository),
+        )
+
+    def _doctrine_records_from_database(self) -> tuple[DoctrineRecord, ...]:
+        if self.database is None:
+            return ()
+        records: list[DoctrineRecord] = []
+        for document in self.database.list_documents("doctrine_library"):
+            try:
+                records.append(
+                    DoctrineRecord(
+                        title=str(document["title"]),
+                        scope=DoctrineScope(str(document["scope"])),
+                        summary=str(document["summary"]),
+                        source=str(document["source"]),
+                        applicability=tuple(str(item) for item in document.get("applicability", ()) if str(item)),
+                        restrictions=tuple(str(item) for item in document.get("restrictions", ()) if str(item)),
+                        tags=frozenset(str(item) for item in document.get("tags", ()) if str(item)),
+                        id=str(document["id"]),
+                    )
+                )
+            except (KeyError, TypeError, ValueError):
+                continue
+        return tuple(records)
+
+    def _save_evidence_pack(
+        self,
+        source_kind: str,
+        source_id: str,
+        source_module: str,
+        package_scope: str,
+        title: str,
+        summary: str,
+        confidence_value: float,
+        recommended_review_role: str,
+        related_ids: tuple[str, ...] = (),
+        provenance_refs: tuple[str, ...] = (),
+        assumptions: tuple[str, ...] = (),
+        uncertainty: tuple[str, ...] = (),
+        redactions: tuple[str, ...] = (),
+        brain_references: tuple[str, ...] = (),
+        allowed_actions: tuple[str, ...] = (),
+        disallowed_actions: tuple[str, ...] = (),
+        tags: tuple[str, ...] = (),
+        simulation_flag: bool = True,
+    ) -> dict[str, object] | None:
+        if self.database is None:
+            return None
+        document = {
+            "id": f"evidence-{source_kind}-{source_id}",
+            "source_kind": source_kind,
+            "source_id": source_id,
+            "source_module": source_module,
+            "package_scope": package_scope,
+            "memory_compartment": self._memory_compartment_for_package(package_scope),
+            "title": title,
+            "summary": summary,
+            "confidence": round(confidence_value, 2),
+            "confidence_band": self._confidence_band(confidence_value),
+            "recommended_review_role": recommended_review_role,
+            "related_ids": list(related_ids),
+            "provenance_refs": list(provenance_refs),
+            "assumptions": list(assumptions),
+            "uncertainty": list(uncertainty),
+            "redactions": list(redactions),
+            "brain_references": list(brain_references),
+            "allowed_actions": list(allowed_actions),
+            "disallowed_actions": list(disallowed_actions),
+            "tags": sorted(set(tags)),
+            "simulation_flag": simulation_flag,
+            "created_at": datetime.now(UTC).isoformat(),
+        }
+        self.database.save_document("evidence_packs", document["id"], document)
+        return document
+
+    @staticmethod
+    def _confidence_band(value: float) -> str:
+        if value >= 0.75:
+            return "high"
+        if value >= 0.4:
+            return "medium"
+        return "low"
+
+    def _sync_review_tasks(self) -> None:
+        if self.database is None:
+            return
+        for report in self.database.list_documents("operator_reports"):
+            self._upsert_review_task(
+                task_id=f"review-operator-report-{report['id']}",
+                document={
+                    "source_kind": "operator_report",
+                    "source_id": report["id"],
+                    "package_scope": "c5isr",
+                    "title": f"Operator report {report.get('report_type', 'report')}",
+                    "summary": report.get("summary", ""),
+                    "severity": report.get("severity", "medium"),
+                    "confidence": report.get("confidence", 0.0),
+                    "assigned_role": "c5isr_manager",
+                    "evidence_pack_ids": [f"evidence-operator_report-{report['id']}"],
+                    "related_ids": [report["id"]],
+                    "provenance_refs": [report["id"]],
+                },
+            )
+        for conflict in self.database.list_documents("conflicts"):
+            self._upsert_review_task(
+                task_id=f"review-conflict-{conflict['id']}",
+                document={
+                    "source_kind": "conflict",
+                    "source_id": conflict["id"],
+                    "package_scope": "c5isr",
+                    "title": f"Conflict {conflict.get('conflict_type', 'packet')}",
+                    "summary": conflict.get("explanation", ""),
+                    "severity": "high",
+                    "confidence": conflict.get("confidence", 0.0),
+                    "assigned_role": conflict.get("recommended_review_role", "c5isr_manager"),
+                    "evidence_pack_ids": [f"evidence-conflict-{conflict['id']}"],
+                    "related_ids": list(conflict.get("conflicting_items", ())),
+                    "provenance_refs": [f"prov-conflict-{conflict['id']}-1"],
+                },
+            )
+        for impact in self.database.list_documents("mission_impacts"):
+            self._upsert_review_task(
+                task_id=f"review-mission-impact-{impact['id']}",
+                document={
+                    "source_kind": "mission_impact",
+                    "source_id": impact["id"],
+                    "package_scope": "c5isr",
+                    "title": f"Mission impact {impact.get('impacted_area', 'review')}",
+                    "summary": impact.get("summary", ""),
+                    "severity": "medium",
+                    "confidence": impact.get("confidence", 0.0),
+                    "assigned_role": impact.get("recommended_review_role", "c5isr_manager"),
+                    "evidence_pack_ids": [f"evidence-mission_impact-{impact['id']}"],
+                    "related_ids": list(impact.get("source_event_ids", ())),
+                    "provenance_refs": [f"prov-mission_impact-{impact['id']}-1"],
+                },
+            )
+        for issue in self.database.list_documents("network_issues"):
+            self._upsert_review_task(
+                task_id=f"review-network-issue-{issue['id']}",
+                document={
+                    "source_kind": "network_issue",
+                    "source_id": issue["id"],
+                    "package_scope": "net",
+                    "title": f"NET issue {issue.get('issue_type', 'review')}",
+                    "summary": issue.get("summary", ""),
+                    "severity": issue.get("severity", "medium"),
+                    "confidence": issue.get("confidence", 0.0),
+                    "assigned_role": issue.get("recommended_review_role", "network_manager"),
+                    "evidence_pack_ids": [f"evidence-network_issue-{issue['id']}"],
+                    "related_ids": [issue["id"], issue.get("plan_id", "")],
+                    "provenance_refs": [f"prov-network_issue-{issue['id']}-1"],
+                },
+            )
+        for notice in self.database.list_documents("intel_module_notices"):
+            self._upsert_review_task(
+                task_id=f"review-intel-notice-{notice['id']}",
+                document={
+                    "source_kind": "intel_module_notice",
+                    "source_id": notice["id"],
+                    "package_scope": "intel",
+                    "title": f"INTEL notice {notice.get('module', 'review')}",
+                    "summary": notice.get("summary", ""),
+                    "severity": "medium",
+                    "confidence": notice.get("confidence", 0.0),
+                    "assigned_role": "intel_analyst",
+                    "evidence_pack_ids": [f"evidence-intel_notice-{notice['id']}"],
+                    "related_ids": [notice["id"], notice.get("intel_summary_id", ""), notice.get("intel_impact_id", "")],
+                    "provenance_refs": [notice.get("intel_summary_id", ""), notice.get("intel_impact_id", "")],
+                },
+            )
+        for proposal in self.database.list_documents("learning_proposals"):
+            self._upsert_review_task(
+                task_id=f"review-learning-proposal-{proposal['id']}",
+                document={
+                    "source_kind": "learning_proposal",
+                    "source_id": proposal["id"],
+                    "package_scope": "full",
+                    "title": "BRAIN lesson promotion review",
+                    "summary": proposal.get("summary", ""),
+                    "severity": "low",
+                    "confidence": 0.5,
+                    "assigned_role": proposal.get("required_reviewer_role", "system_administrator"),
+                    "evidence_pack_ids": [f"evidence-learning_proposal-{proposal['id']}"],
+                    "related_ids": [proposal["id"], *list(proposal.get("evidence_refs", ()))],
+                    "provenance_refs": list(proposal.get("evidence_refs", ())),
+                },
+            )
+        for run in self.database.list_documents("adapter_runs"):
+            if run.get("status") == "completed":
+                continue
+            self._upsert_review_task(
+                task_id=f"review-adapter-run-{run['id']}",
+                document={
+                    "source_kind": "adapter_run",
+                    "source_id": run["id"],
+                    "package_scope": "full",
+                    "title": f"Adapter run {run.get('adapter_name', run['adapter_id'])}",
+                    "summary": run.get("summary", ""),
+                    "severity": "medium",
+                    "confidence": 0.42,
+                    "assigned_role": "system_administrator",
+                    "evidence_pack_ids": [f"evidence-adapter_run-{run['id']}"],
+                    "related_ids": [run["id"], run.get("adapter_id", "")],
+                    "provenance_refs": [run.get("adapter_id", "")],
+                },
+            )
+
+    def _upsert_review_task(self, task_id: str, document: dict[str, object]) -> None:
+        if self.database is None:
+            return
+        now = datetime.now(UTC).isoformat()
+        existing = None
+        try:
+            existing = self.database.get_document("review_tasks", task_id)
+        except KeyError:
+            existing = None
+        state = str(existing.get("state", "new")) if existing else "new"
+        merged = {
+            "id": task_id,
+            "state": state,
+            "history": list(existing.get("history", [])) if existing else [],
+            "acknowledged_by": existing.get("acknowledged_by") if existing else None,
+            "reviewed_by": existing.get("reviewed_by") if existing else None,
+            "last_note": existing.get("last_note", "") if existing else "",
+            "created_at": existing.get("created_at", now) if existing else now,
+            "updated_at": now,
+            **document,
+        }
+        self.database.save_document("review_tasks", task_id, merged)
+
+    def _apply_review_state_to_source(
+        self,
+        task: dict[str, object],
+        state: str,
+        reviewer_id: str,
+        note: str,
+    ) -> None:
+        if self.database is None:
+            return
+        source_kind = str(task.get("source_kind", ""))
+        source_id = str(task.get("source_id", ""))
+        if source_kind == "operator_report":
+            mapped_state = {
+                "acknowledged": "under_review",
+                "validated": "validated",
+                "needs_more_info": "needs_more_info",
+                "rejected": "closed",
+                "closed": "closed",
+                "new": "new",
+            }[state]
+            self.review_operator_report(source_id, mapped_state, reviewer_id, note)
+            return
+        collection_map = {
+            "conflict": "conflicts",
+            "mission_impact": "mission_impacts",
+            "network_issue": "network_issues",
+            "intel_module_notice": "intel_module_notices",
+            "learning_proposal": "learning_proposals",
+            "adapter_run": "adapter_runs",
+        }
+        collection = collection_map.get(source_kind)
+        if not collection:
+            return
+        document = self.database.get_document(collection, source_id)
+        document["review_state"] = state
+        document["reviewed_by"] = reviewer_id
+        document["review_note"] = note
+        document["reviewed_at"] = datetime.now(UTC).isoformat()
+        if source_kind == "learning_proposal":
+            document["review_status"] = "approved" if state == "validated" else "rejected" if state == "rejected" else document.get("review_status", "proposed")
+        self.database.save_document(collection, source_id, document)
+
+    def _persist_memory_record(
+        self,
+        compartment: str,
+        package_scope: str,
+        title: str,
+        summary: str,
+        tags: tuple[str, ...],
+        source_kind: str,
+        source_id: str,
+        created_by: str,
+        provenance_refs: tuple[str, ...] = (),
+        review_state: str = "captured",
+    ) -> dict[str, object]:
+        if self.database is None:
+            raise ValueError("database is required for memory records")
+        document = {
+            "id": f"memory-{uuid4().hex[:12]}",
+            "compartment": compartment,
+            "package_scope": package_scope,
+            "title": title,
+            "summary": summary,
+            "tags": list(tags),
+            "source_kind": source_kind,
+            "source_id": source_id,
+            "created_by": created_by,
+            "provenance_refs": list(provenance_refs),
+            "review_state": review_state,
+            "created_at": datetime.now(UTC).isoformat(),
+        }
+        self.database.save_document("compartment_memories", document["id"], document)
+        return document
+
+    @staticmethod
+    def _memory_compartment_for_package(package_scope: str) -> str:
+        mapping = {
+            "c5isr": "c5isr.package",
+            "net": "net.package",
+            "intel": "intel.package",
+            "sim": "sim.package",
+            "operator": "operator.package",
+            "full": "core.shared",
+        }
+        return mapping.get(package_scope, "core.shared")
+
+    @staticmethod
+    def _matches_recall_query(query_text: str, record: dict[str, object], fields: tuple[str, ...]) -> bool:
+        if not query_text:
+            return True
+        haystack = " ".join(str(record.get(field, "")) for field in fields).lower()
+        tags = " ".join(str(item) for item in record.get("tags", ())).lower()
+        return query_text in haystack or query_text in tags
+
+    def _build_audit_replay_document(self, focus_id: str = "", limit: int = 12) -> dict[str, object]:
+        self._sync_review_tasks()
+        self._sync_audit_ledger()
+        self._sync_fabric_ledger()
+        self._sync_provenance_ledger()
+        evidence = list(self.database.list_documents("evidence_packs")) if self.database else []
+        review_tasks = list(self.database.list_documents("review_tasks")) if self.database else []
+        memories = list(self.database.list_documents("compartment_memories")) if self.database else []
+        timeline = list(self.database.list_documents("timeline")) if self.database else []
+        audits = list(self.database.list_documents("audit_records")) if self.database else []
+        policy_decisions = list(self.database.list_documents("policy_decisions")) if self.database else []
+        fabric = list(self.database.list_documents("fabric_messages")) if self.database else []
+        if focus_id:
+            evidence = [
+                record
+                for record in evidence
+                if focus_id == record.get("source_id")
+                or focus_id in record.get("related_ids", [])
+                or focus_id in record.get("provenance_refs", [])
+            ]
+            review_tasks = [
+                record
+                for record in review_tasks
+                if focus_id == record.get("source_id") or focus_id in record.get("related_ids", [])
+            ]
+            memories = [
+                record
+                for record in memories
+                if focus_id == record.get("source_id") or focus_id in record.get("provenance_refs", [])
+            ]
+            timeline = [
+                record
+                for record in timeline
+                if focus_id == record.get("id") or focus_id in str(record.get("metadata", {}))
+            ]
+            audits = [
+                record
+                for record in audits
+                if focus_id in record.get("summary", "") or focus_id in str(record.get("metadata", {}))
+            ]
+            policy_decisions = [
+                record
+                for record in policy_decisions
+                if focus_id in str(record.get("message_id", "")) or focus_id in record.get("summary", "")
+            ]
+            fabric = [
+                record
+                for record in fabric
+                if focus_id == record.get("provenance_ref") or focus_id == record.get("message_id")
+            ]
+        replay_id = f"replay-{uuid4().hex[:12]}"
+        return {
+            "id": replay_id,
+            "focus_id": focus_id or "latest-platform-state",
+            "generated_at": datetime.now(UTC).isoformat(),
+            "summary": {
+                "timeline_events": len(timeline[-limit:]),
+                "audit_records": len(audits[-limit:]),
+                "policy_decisions": len(policy_decisions[-limit:]),
+                "fabric_messages": len(fabric[-limit:]),
+                "evidence_packs": len(evidence[-limit:]),
+                "review_tasks": len(review_tasks[-limit:]),
+                "memory_records": len(memories[-limit:]),
+            },
+            "timeline": timeline[-limit:],
+            "audit_records": audits[-limit:],
+            "policy_decisions": policy_decisions[-limit:],
+            "fabric_messages": fabric[-limit:],
+            "evidence_packs": evidence[-limit:],
+            "review_tasks": review_tasks[-limit:],
+            "memory_records": memories[-limit:],
+            "guardrails": [
+                "Replay is advisory reconstruction only.",
+                "Replay does not create command authority or operational tasking.",
+                "Synthetic, mock, open, or explicitly authorized data only.",
+            ],
+        }
+
+    @staticmethod
+    def _synthetic_provenance(module: str) -> ProvenanceRecord:
+        return ProvenanceRecord(
+            source="jinx-application-service",
+            time_received=datetime.now(UTC),
+            processed_by_module=module,
+            transformations=("service_generated",),
+            confidence=JINXApplicationService._synthetic_confidence(),
+        )
+
+    @staticmethod
+    def _synthetic_confidence() -> ConfidenceScore:
+        return ConfidenceScore(
+            value=0.63,
+            scale="0.0-1.0",
+            rationale="Synthetic service-generated provenance confidence.",
+            source_quality=0.62,
+            recency_factor=0.8,
+            corroboration_factor=0.25,
+            contradiction_factor=0.08,
+            completeness_factor=0.56,
+        )
 
     def _ensure_governance_state(self) -> None:
         if self.database is None:
@@ -2565,6 +3497,24 @@ class JINXApplicationService:
                 },
             )
             self._persist_provenance_chain("network_issue", issue.id, (issue.provenance,))
+            self._save_evidence_pack(
+                source_kind="network_issue",
+                source_id=issue.id,
+                source_module="jinx-net",
+                package_scope="net",
+                title=f"NET issue {issue.issue_type}",
+                summary=issue.summary,
+                confidence_value=issue.confidence.value,
+                recommended_review_role=issue.recommended_review_role,
+                related_ids=(plan.id, validation_run.id, f"net-advisory-{issue.id}"),
+                provenance_refs=(issue.id,),
+                assumptions=("Network validation remains synthetic and advisory only.",),
+                uncertainty=("Network-domain timing and LOS assumptions may change with scenario inputs.",),
+                allowed_actions=tuple(issue.recommended_human_actions),
+                disallowed_actions=tuple(issue.disallowed_actions),
+                tags=("net", "issue", issue.severity, issue.issue_type),
+                simulation_flag=plan.simulation_flag,
+            )
         for event in events:
             self.database.save_document(
                 "events",
@@ -2796,6 +3746,24 @@ class JINXApplicationService:
                 "timestamp": intake.advisory.timestamp.isoformat(),
             },
         )
+        self._save_evidence_pack(
+            source_kind="operator_report",
+            source_id=report.id,
+            source_module="jinx-c5isr",
+            package_scope="c5isr",
+            title=f"Operator report {report.report_type.value}",
+            summary=report.summary,
+            confidence_value=report.confidence.value,
+            recommended_review_role="c5isr manager",
+            related_ids=(intake.event.id, intake.advisory.id),
+            provenance_refs=(report.id,),
+            assumptions=("Operator report remains human-originated and advisory only.",),
+            uncertainty=("Report content requires human validation before operational use.",),
+            allowed_actions=tuple(intake.advisory.allowed_actions),
+            disallowed_actions=tuple(intake.advisory.disallowed_actions),
+            tags=("operator", "c5isr", report.report_type.value),
+            simulation_flag=report.simulation_flag,
+        )
         self._append_timeline(
             "operator_report",
             f"{report.reporter_id} submitted {report.report_type.value}.",
@@ -2857,6 +3825,23 @@ class JINXApplicationService:
                     "disallowed_actions": list(explanation.disallowed_actions),
                 },
             )
+            self._save_evidence_pack(
+                source_kind="explanation",
+                source_id=explanation.id,
+                source_module="jinx-core",
+                package_scope="full",
+                title=f"Core explanation {explanation.output_type}",
+                summary=explanation.why_flagged,
+                confidence_value=result.analysis_run.confidence_summary.value if result.analysis_run is not None else 0.58,
+                recommended_review_role=explanation.recommended_review_role,
+                related_ids=(explanation.output_id, *explanation.contributing_inputs),
+                provenance_refs=tuple(explanation.contributing_inputs),
+                uncertainty=(explanation.uncertainty,),
+                brain_references=tuple(explanation.brain_references),
+                allowed_actions=tuple(explanation.allowed_actions),
+                disallowed_actions=tuple(explanation.disallowed_actions),
+                tags=("core", "explanation", explanation.output_type),
+            )
         for conflict in result.conflicts:
             self.database.save_document(
                 "conflicts",
@@ -2876,6 +3861,22 @@ class JINXApplicationService:
                 },
             )
             self._persist_provenance_chain("conflict", conflict.id, conflict.provenance_chain)
+            self._save_evidence_pack(
+                source_kind="conflict",
+                source_id=conflict.id,
+                source_module=conflict.detected_by_module,
+                package_scope="c5isr",
+                title=f"Conflict {conflict.conflict_type}",
+                summary=conflict.explanation,
+                confidence_value=conflict.confidence.value,
+                recommended_review_role=conflict.recommended_review_role,
+                related_ids=tuple(conflict.conflicting_items),
+                provenance_refs=tuple(record.source for record in conflict.provenance_chain),
+                uncertainty=tuple(conflict.likely_impacts),
+                allowed_actions=tuple(conflict.potential_human_resolutions),
+                disallowed_actions=("No automated conflict resolution.",),
+                tags=("core", "conflict", conflict.conflict_type),
+            )
         for recommendation in result.recommendations:
             self.database.save_document(
                 "recommendations",
@@ -2896,6 +3897,24 @@ class JINXApplicationService:
                 },
             )
             self._persist_provenance_chain("recommendation", recommendation.id, recommendation.provenance_chain)
+            self._save_evidence_pack(
+                source_kind="recommendation",
+                source_id=recommendation.id,
+                source_module="jinx-core",
+                package_scope="full",
+                title=f"Recommendation {recommendation.recommendation_type}",
+                summary=recommendation.text,
+                confidence_value=recommendation.confidence.value,
+                recommended_review_role="human reviewer",
+                related_ids=tuple(recommendation.brain_references),
+                provenance_refs=tuple(record.source for record in recommendation.provenance_chain),
+                assumptions=tuple(recommendation.assumptions),
+                uncertainty=tuple(recommendation.risks),
+                brain_references=tuple(recommendation.brain_references),
+                allowed_actions=tuple(recommendation.allowed_actions),
+                disallowed_actions=tuple(recommendation.disallowed_actions),
+                tags=("core", "recommendation", recommendation.recommendation_type),
+            )
 
     def _persist_intelligence_summary(
         self,
@@ -2923,6 +3942,22 @@ class JINXApplicationService:
                 "timestamp": summary.timestamp.isoformat(),
             },
         )
+        self._save_evidence_pack(
+            source_kind="intelligence_summary",
+            source_id=summary.id,
+            source_module="jinx-intel",
+            package_scope="intel",
+            title=f"INTEL summary {summary.source_category}",
+            summary=summary.summary,
+            confidence_value=summary.confidence.value,
+            recommended_review_role="intel analyst",
+            related_ids=tuple(summary.related_entities + summary.related_locations),
+            provenance_refs=(summary.id,),
+            assumptions=tuple(summary.restrictions),
+            uncertainty=("Intelligence context requires analyst review before operational use.",),
+            tags=("intel", "summary", summary.source_category),
+            simulation_flag=summary.simulation_flag,
+        )
         delivered_by_impact = {route.message.provenance_ref: route.delivered for route in routes}
         for impact in fusion.impacts:
             self.database.save_document(
@@ -2936,6 +3971,21 @@ class JINXApplicationService:
                     "confidence": impact.confidence.value,
                     "delivered_to_core": delivered_by_impact.get(impact.id, False),
                 },
+            )
+            self._save_evidence_pack(
+                source_kind="intel_impact",
+                source_id=impact.id,
+                source_module="jinx-intel",
+                package_scope="intel",
+                title=f"INTEL impact {impact.impacted_area}",
+                summary=impact.summary,
+                confidence_value=impact.confidence.value,
+                recommended_review_role="intel analyst",
+                related_ids=(summary.id,),
+                provenance_refs=(impact.id,),
+                assumptions=tuple(summary.restrictions),
+                uncertainty=("Impact correlation remains confidence-limited and advisory only.",),
+                tags=("intel", "impact", impact.impacted_area),
             )
             affected_modules = self._affected_modules_for_intel_impact(impact.impacted_area)
             correlation_id = f"intel-correlation-{summary.id}-{impact.id}"
@@ -2976,6 +4026,21 @@ class JINXApplicationService:
                         "required_human_review": True,
                         "delivered_to_core": delivered_by_impact.get(impact.id, False),
                     },
+                )
+                self._save_evidence_pack(
+                    source_kind="intel_notice",
+                    source_id=notice_id,
+                    source_module="jinx-intel",
+                    package_scope="intel",
+                    title=f"INTEL notice for {module}",
+                    summary=f"{module} review notice: {impact.summary}",
+                    confidence_value=impact.confidence.value,
+                    recommended_review_role="intel analyst",
+                    related_ids=(summary.id, impact.id, module),
+                    provenance_refs=(summary.id, impact.id),
+                    assumptions=("Notice distribution remains package and boundary controlled.",),
+                    uncertainty=("Receiving module may require additional human review before acting.",),
+                    tags=("intel", "notice", module),
                 )
         for event in events:
             self.database.save_document(
@@ -3027,6 +4092,21 @@ class JINXApplicationService:
                     "required_human_review": impact.required_human_review,
                     "timestamp": impact.timestamp.isoformat(),
                 },
+            )
+            self._save_evidence_pack(
+                source_kind="mission_impact",
+                source_id=impact.id,
+                source_module="jinx-core",
+                package_scope="c5isr",
+                title=f"Mission impact {impact.impacted_area}",
+                summary=impact.summary,
+                confidence_value=impact.confidence.value,
+                recommended_review_role=impact.recommended_review_role,
+                related_ids=tuple(impact.source_event_ids),
+                provenance_refs=tuple(record.source for record in impact.provenance_chain),
+                assumptions=tuple(impact.affected_tasks),
+                uncertainty=(impact.rationale,),
+                tags=("mission", "impact", impact.impacted_area),
             )
             self._append_timeline(
                 "mission_impact",
