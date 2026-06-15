@@ -233,6 +233,10 @@ h2 {
   margin-top: 16px;
 }
 
+.focus-panel {
+  margin-top: 16px;
+}
+
 .section-head {
   justify-content: space-between;
   margin-bottom: 12px;
@@ -319,6 +323,31 @@ h2 {
   display: block;
   font-size: 13px;
   line-height: 1.45;
+  color: var(--text-soft);
+}
+
+.item-caption {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.item-callout {
+  display: grid;
+  gap: 4px;
+  padding: 10px;
+  border: 1px solid rgba(134, 220, 141, 0.16);
+  border-radius: 6px;
+  background: rgba(134, 220, 141, 0.05);
+}
+
+.item-callout strong {
+  margin: 0;
+  color: var(--accent);
+  font-size: 12px;
+}
+
+.item-callout span {
   color: var(--text-soft);
 }
 
@@ -743,6 +772,10 @@ button {
 
 .operator-selection {
   min-height: 86px;
+}
+
+.focus-card {
+  min-height: 116px;
 }
 
 .operator-selection strong {

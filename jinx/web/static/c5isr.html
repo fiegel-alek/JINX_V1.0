@@ -108,6 +108,7 @@
               <h2>Operator Report</h2>
               <span>Operator Mini</span>
             </div>
+            <p class="section-note">Take in operator traffic, keep it factual, and let CORE plus BRAIN surface the human review burden.</p>
             <form id="report-form" class="form">
               <div class="form-grid">
                 <label>
@@ -153,8 +154,18 @@
               <h2>Mission Context</h2>
               <span id="mission-id">not loaded</span>
             </div>
+            <p class="section-note">Mission statement, intent, and named routes stay visible here so the COP manager can read every packet against the current mission frame.</p>
             <div id="mission-context" class="list empty">No mission context loaded</div>
           </section>
+        </section>
+
+        <section class="panel focus-panel">
+          <div class="section-head">
+            <h2>Current Focus</h2>
+            <span id="focus-kind">Awaiting review signal</span>
+          </div>
+          <p class="section-note">C5ISR keeps the highest-friction item here so the manager sees what needs human attention first.</p>
+          <div id="focus-card" class="list focus-card empty">No C5ISR focus yet</div>
         </section>
 
         <section class="data-grid" id="review">
@@ -198,7 +209,7 @@
           </section>
           <section class="panel">
             <div class="section-head">
-              <h2>Human Resolution Paths</h2>
+              <h2>Human Review Options</h2>
               <span id="recommendation-count">0</span>
             </div>
             <div id="recommendation-list" class="list empty">No recommendations</div>

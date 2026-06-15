@@ -85,6 +85,7 @@
               <h2>Network Plan Builder</h2>
               <span>Synthetic</span>
             </div>
+            <p class="section-note">Build or paste a synthetic plan, then let JINX-NET surface the human review path before any assumption is reused elsewhere.</p>
             <form id="net-plan-form" class="form">
               <div class="form-grid">
                 <label>
@@ -124,6 +125,7 @@
               <h2>Parser Stub</h2>
               <span>OPTASKLINK/NDD style</span>
             </div>
+            <p class="section-note">Use parser mode when you want a quick structured read on slot, node, and LOS text without leaving the NET desk.</p>
             <form id="net-parser-form" class="form">
               <label>
                 <span class="field-label">Synthetic text</span>
@@ -139,6 +141,15 @@ los: node-alpha, node-bravo, degraded, Synthetic relay assumption.</textarea>
               <button type="submit">Parse And Validate</button>
             </form>
           </section>
+        </section>
+
+        <section class="panel focus-panel">
+          <div class="section-head">
+            <h2>Current Focus</h2>
+            <span id="net-focus-kind">Awaiting NET review</span>
+          </div>
+          <p class="section-note">The NET desk keeps the most actionable issue or advisory here so the network manager can move from scan to review quickly.</p>
+          <div id="net-focus-card" class="list focus-card empty">No NET focus yet</div>
         </section>
 
         <section class="data-grid" id="issues">
@@ -158,7 +169,7 @@ los: node-alpha, node-bravo, degraded, Synthetic relay assumption.</textarea>
           </section>
           <section class="panel">
             <div class="section-head">
-              <h2>Validation Runs</h2>
+              <h2>Validation History</h2>
               <span id="net-validation-count">0</span>
             </div>
             <div id="net-validation-list" class="list empty">No validation runs</div>

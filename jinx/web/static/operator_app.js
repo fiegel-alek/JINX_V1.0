@@ -278,13 +278,14 @@ function renderActionGrid() {
 function renderSelection(marker) {
   if (!marker) {
     operator.selectionCard.className = "list empty";
-    operator.selectionCard.textContent = "Select a map point to prep a report.";
+    operator.selectionCard.textContent = "Tap a local point to start a report.";
     return;
   }
   operator.selectionCard.className = "list operator-selection";
   operator.selectionCard.innerHTML = `
     <article class="item ${escapeHTML(marker.kind)}">
       <strong>${escapeHTML(marker.label)}</strong>
+      <span class="item-caption">Current local focus for the next field update</span>
       <span>${escapeHTML(marker.summary)}</span>
       ${pairGrid([
         ["Type", marker.kind],
@@ -327,6 +328,7 @@ function renderReceipt() {
   operator.receiptCard.innerHTML = `
     <article class="item advisory">
       <strong>${escapeHTML(lastReceipt.status || "queued_for_human_review")}</strong>
+      <span class="item-caption">Latest operator submission result</span>
       <span>${escapeHTML(lastReceipt.advisory_summary || lastReceipt.summary || "Receipt recorded.")}</span>
       ${pairGrid([
         ["Report", lastReceipt.report_id || lastReceipt.local_id || "pending"],
@@ -341,6 +343,7 @@ function renderAdvisories(advisories) {
   renderList(operator.advisoryList, advisories.slice(-6).reverse(), "No advisories", (advisory) => `
     <article class="item advisory">
       <strong>${escapeHTML(advisory.summary)}</strong>
+      <span class="item-caption">Local advisory returned for operator awareness</span>
       ${pairGrid([
         ["Confidence", advisory.confidence],
         ["Time", formatTime(advisory.timestamp)],
@@ -354,6 +357,7 @@ function renderReports(reports) {
   renderList(operator.reportList, reports.slice(-6).reverse(), "No reports yet", (report) => `
     <article class="item">
       <strong>${escapeHTML(report.report_type)}</strong>
+      <span class="item-caption">Field report status: ${escapeHTML(report.review_state || "new")}</span>
       <span>${escapeHTML(report.summary)}</span>
       ${pairGrid([
         ["Review state", report.review_state || "new"],
@@ -369,6 +373,7 @@ function renderBrain(messages) {
   renderList(operator.brainList, messages.slice(-5).reverse(), "No operator BRAIN thread yet", (message) => `
     <article class="item brain-chat">
       <strong>${escapeHTML(message.answer.confidence_band)} confidence</strong>
+      <span class="item-caption">BRAIN reachback for field use</span>
       <span>Q: ${escapeHTML(message.question.text)}</span>
       <span>${escapeHTML(message.answer.answer_text)}</span>
       ${pairGrid([

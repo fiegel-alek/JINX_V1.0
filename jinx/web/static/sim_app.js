@@ -18,6 +18,8 @@ const sim = {
   runList: document.querySelector("#simulation-run-list"),
   comparisonList: document.querySelector("#comparison-list"),
   brainChatList: document.querySelector("#brain-chat-list"),
+  focusKind: document.querySelector("#sim-focus-kind"),
+  focusCard: document.querySelector("#sim-focus-card"),
 };
 
 const SESSION_KEY = "jinx-sim-session-token";
@@ -90,6 +92,25 @@ function escapeHTML(value) {
   })[char]);
 }
 
+function pairGrid(pairs) {
+  const rows = pairs.filter(([, value]) => value !== undefined && value !== null && String(value) !== "");
+  if (!rows.length) return "";
+  return `
+    <div class="data-pair-grid">
+      ${rows.map(([label, value]) => `
+        <div class="data-pair">
+          <span class="data-pair-label">${escapeHTML(label)}</span>
+          <span class="data-pair-value">${escapeHTML(value)}</span>
+        </div>
+      `).join("")}
+    </div>
+  `;
+}
+
+function readableLabel(value) {
+  return String(value || "unknown").replaceAll("_", " ");
+}
+
 function renderList(container, records, emptyText, renderer) {
   if (!records || records.length === 0) {
     container.className = "list empty";
@@ -104,6 +125,50 @@ function setStatus(ok, text) {
   sim.apiStatus.classList.toggle("ok", ok);
   sim.apiStatus.classList.toggle("error", !ok);
   sim.apiStatusText.textContent = text;
+}
+
+function renderScenarioBrief(scenario, run, control) {
+  if (!scenario && !run) {
+    sim.focusKind.textContent = "No scenario selected";
+    sim.focusCard.className = "list focus-card empty";
+    sim.focusCard.textContent = "No scenario brief yet";
+    return;
+  }
+  const kind = run ? readableLabel(run.result_state || run.status || "scenario loaded") : "Scenario loaded";
+  const title = scenario ? scenario.name : run.scenario_name;
+  const caption = scenario
+    ? `${scenario.source || "built_in"} scenario ready for replay`
+    : `${run.scenario_source || "built_in"} replay result`;
+  const summary = run
+    ? `Latest run returned ${readableLabel(run.result_state || run.status || "matched")} and ${run.missing_outputs?.length || 0} missing outputs.`
+    : (scenario && scenario.summary) || "Scenario selected and ready to run.";
+  const nextStep = run
+    ? (run.missing_outputs || [])[0]
+      ? `Investigate why ${run.missing_outputs[0]} did not appear before reusing this scenario.`
+      : (run.unexpected_outputs || [])[0]
+        ? `Review why ${run.unexpected_outputs[0]} appeared so the replay stays deterministic.`
+        : "Replay matched expectations. Record any human observations before promotion."
+    : "Load, step, or run the scenario to compare expected outputs against actual behavior.";
+
+  sim.focusKind.textContent = kind;
+  sim.focusCard.className = "list focus-card";
+  sim.focusCard.innerHTML = `
+    <article class="item recommendation">
+      <strong>${escapeHTML(title || "Scenario brief")}</strong>
+      <span class="item-caption">${escapeHTML(caption)}</span>
+      <span>${escapeHTML(summary)}</span>
+      ${pairGrid([
+        ["Injects", scenario ? (scenario.injects || []).length : (run.timeline || []).length],
+        ["Expected outputs", scenario ? (scenario.expected_outputs || []).length : (run.expected_outputs || []).length],
+        ["Clock", `${control.current_offset_seconds || 0}s / ${control.duration_seconds || 0}s`],
+        ["Latest run", run ? (run.id || "recorded") : "none"],
+      ])}
+      <div class="item-callout">
+        <strong>Next review step</strong>
+        <span>${escapeHTML(nextStep)}</span>
+      </div>
+    </article>
+  `;
 }
 
 function renderSession(sessionDoc, entitlements) {
@@ -163,6 +228,7 @@ function renderLibrary(scenarios, control) {
     return `
       <article class="item ${isSelected ? "recommendation" : "net"}">
         <strong>${escapeHTML(scenario.name)} · ${escapeHTML(scenario.source)}</strong>
+        <span class="item-caption">${isSelected ? "Currently loaded for replay control" : "Available scenario in the SIM library"}</span>
         <span>${escapeHTML(scenario.summary)}</span>
         <span>injects ${escapeHTML(injectCount)} · duration ${escapeHTML(scenario.duration_seconds)}s · expected ${(scenario.expected_outputs || []).length}</span>
         <div class="review-row">
@@ -180,6 +246,7 @@ function renderControl(control) {
   sim.controlSummary.innerHTML = [
     `<article class="item advisory">`,
     `<strong>${escapeHTML(control.selected_scenario_name || "No scenario")} · ${escapeHTML(control.selected_scenario_source || "built_in")}</strong>`,
+    `<span class="item-caption">Current replay control state</span>`,
     `<span>clock ${escapeHTML(control.current_offset_seconds)}s / ${escapeHTML(control.duration_seconds)}s</span>`,
     `<span>current ${escapeHTML(control.current_frame ? control.current_frame.type : "none")} · next ${escapeHTML(control.next_frame ? control.next_frame.type : "none")}</span>`,
     `<span>last action ${escapeHTML(control.last_action || "bootstrap")} · latest run ${escapeHTML(control.latest_run_id || "none")}</span>`,
@@ -193,6 +260,7 @@ function renderTimeline(scenario) {
   renderList(sim.timelineList, injects, "No inject timeline loaded", (inject) => `
     <article class="item isr">
       <strong>T+${escapeHTML(inject.offset_seconds)} · ${escapeHTML(inject.type)}</strong>
+      <span class="item-caption">Synthetic inject staged for this replay</span>
       <span>${escapeHTML(inject.summary || inject.name || inject.mission_statement || inject.report_text || inject.report_type || inject.feed_name || "Synthetic inject")}</span>
     </article>
   `);
@@ -209,6 +277,7 @@ function renderLatestResult(run) {
   sim.latestResultCard.innerHTML = `
     <article class="item mission-impact">
       <strong>${escapeHTML(run.scenario_name)} · ${escapeHTML(run.result_state || "matched")}</strong>
+      <span class="item-caption">Latest replay result packet</span>
       <span>expected ${(run.expected_outputs || []).length} · actual ${(run.actual_outputs || []).length} · drift ${escapeHTML(run.confidence_drift)}</span>
       <span>brain answer ${escapeHTML(run.brain_answer_id || "none")} · status ${escapeHTML(run.status || "completed")}</span>
     </article>
@@ -220,6 +289,7 @@ function renderRuns(runs) {
   renderList(sim.runList, runs.slice(-8).reverse(), "No simulation runs", (run) => `
     <article class="item ${run.result_state === "matched" ? "advisory" : "conflict"}">
       <strong>${escapeHTML(run.scenario_name)} · ${escapeHTML(run.result_state || "matched")}</strong>
+      <span class="item-caption">Replay history for comparison and after-action review</span>
       <span>expected ${(run.expected_outputs || []).length} · actual ${(run.actual_outputs || []).length} · synthetic ${run.synthetic ? "yes" : "no"}</span>
       <span>${escapeHTML(run.timestamp || "")}</span>
     </article>
@@ -243,6 +313,7 @@ function renderComparison(run) {
   renderList(sim.comparisonList, records, "No comparison packet yet", (record) => `
     <article class="item ${record.title.includes("Missing") || record.title.includes("Unexpected") ? "conflict" : "advisory"}">
       <strong>${escapeHTML(record.title)}</strong>
+      <span class="item-caption">Expected versus actual replay output</span>
       <span>${escapeHTML(record.detail)}</span>
     </article>
   `);
@@ -253,8 +324,13 @@ function renderBrain(messages) {
   renderList(sim.brainChatList, messages.slice(-6).reverse(), "No Brain chat yet", (message) => `
     <article class="item brain-chat">
       <strong>${escapeHTML(message.answer.confidence_band)} · Core reachback ${message.answer.core_reachback_used ? "used" : "not used"}</strong>
+      <span class="item-caption">Replay interpretation support from JINX-BRAIN</span>
       <span>Q: ${escapeHTML(message.question.text)}</span>
       <span>${escapeHTML(message.answer.answer_text)}</span>
+      ${pairGrid([
+        ["References", (message.answer.references || []).join(", ") || "none"],
+        ["Reachback", message.answer.core_reachback_used ? "Used" : "Not used"],
+      ])}
     </article>
   `);
 }
@@ -285,9 +361,11 @@ async function refresh() {
     renderRuns(runs);
     renderComparison(latestRun);
     renderBrain(brainDoc.messages || []);
+    renderScenarioBrief(selectedScenario(), latestRun, control);
     setStatus(true, `${health.service} API online`);
   } catch (error) {
     setStatus(false, error.message || "API offline");
+    renderScenarioBrief(null, null, {});
   }
 }
 

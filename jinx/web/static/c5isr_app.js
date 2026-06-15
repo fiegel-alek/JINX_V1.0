@@ -19,6 +19,8 @@ const c5 = {
   brainChatList: document.querySelector("#brain-chat-list"),
   timelineList: document.querySelector("#timeline-list"),
   missionContext: document.querySelector("#mission-context"),
+  focusKind: document.querySelector("#focus-kind"),
+  focusCard: document.querySelector("#focus-card"),
   reportForm: document.querySelector("#report-form"),
   brainChatForm: document.querySelector("#brain-chat-form"),
   refreshButton: document.querySelector("#refresh-button"),
@@ -176,6 +178,218 @@ function formatTime(value) {
   return Number.isNaN(date.getTime()) ? "unknown" : date.toLocaleTimeString();
 }
 
+function readableLabel(value) {
+  return String(value || "unknown").replaceAll("_", " ");
+}
+
+function lastItem(records) {
+  return records && records.length ? records[records.length - 1] : null;
+}
+
+function renderFocusCard(packet) {
+  if (!packet) {
+    c5.focusKind.textContent = "Awaiting review signal";
+    c5.focusCard.className = "list focus-card empty";
+    c5.focusCard.textContent = "No C5ISR focus yet";
+    return;
+  }
+  c5.focusKind.textContent = packet.kind;
+  c5.focusCard.className = "list focus-card";
+  c5.focusCard.innerHTML = `
+    <article class="item ${escapeHTML(packet.tone || "")}">
+      <strong>${escapeHTML(packet.title)}</strong>
+      <span class="item-caption">${escapeHTML(packet.caption || "")}</span>
+      <span>${escapeHTML(packet.summary || "")}</span>
+      ${pairGrid(packet.pairs || [])}
+      ${packet.callout ? `
+        <div class="item-callout">
+          <strong>${escapeHTML(packet.calloutTitle || "Human next step")}</strong>
+          <span>${escapeHTML(packet.callout)}</span>
+        </div>
+      ` : ""}
+    </article>
+  `;
+}
+
+function renderOperationalFocus(snapshot) {
+  const conflict = lastItem(snapshot.conflicts || []);
+  if (conflict) {
+    renderFocusCard({
+      kind: "Conflict review",
+      tone: "conflict",
+      title: readableLabel(conflict.conflict_type),
+      caption: `CORE flagged this for ${conflict.recommended_review_role || "human review"}`,
+      summary: conflict.explanation || "A conflict packet is waiting for human review.",
+      pairs: [
+        ["Confidence", conflict.confidence],
+        ["Replay", conflict.simulation_replay_available ? "Available" : "Not available"],
+        ["Linked items", (conflict.conflicting_items || []).length],
+      ],
+      calloutTitle: "First review step",
+      callout: (conflict.potential_human_resolutions || [])[0]
+        || (conflict.likely_impacts || [])[0]
+        || "Compare the linked reports before changing COP assumptions.",
+    });
+    return;
+  }
+
+  const impact = lastItem(snapshot.impacts || []);
+  if (impact) {
+    renderFocusCard({
+      kind: "Mission impact",
+      tone: "mission-impact",
+      title: readableLabel(impact.impacted_area),
+      caption: "Potential effect on the current mission picture",
+      summary: impact.summary || "Mission impact packet awaiting review.",
+      pairs: [
+        ["Confidence", impact.confidence],
+        ["Review role", impact.recommended_review_role],
+        ["Delivered", impact.delivered_to_core ? "Yes" : "Pending"],
+      ],
+      callout: `Validate with ${impact.recommended_review_role || "the assigned reviewer"} before reusing the assumption.`,
+    });
+    return;
+  }
+
+  const reviewItem = lastItem(snapshot.review || []);
+  if (reviewItem) {
+    renderFocusCard({
+      kind: "Review queue",
+      tone: "review-item",
+      title: readableLabel(reviewItem.kind),
+      caption: `${reviewLabel(reviewItem.review_state)} priority item`,
+      summary: reviewItem.summary || "Review item awaiting action.",
+      pairs: [
+        ["Severity", reviewItem.severity],
+        ["Assigned", reviewItem.assigned_reviewer],
+        ["Escalation", reviewItem.escalation_state],
+      ],
+      callout: reviewItem.needs_operator_clarification
+        ? "Reach back to the reporting operator for clarification before closing the item."
+        : `Move this through ${reviewLabel(reviewItem.review_state)} with the assigned reviewer.`,
+    });
+    return;
+  }
+
+  const report = lastItem(snapshot.reports || []);
+  if (report) {
+    renderFocusCard({
+      kind: "Operator report",
+      tone: "",
+      title: `${report.reporter_id || "operator"} · ${readableLabel(report.report_type)}`,
+      caption: `Field report is ${reviewLabel(report.review_state)}`,
+      summary: report.summary || "Operator report awaiting review.",
+      pairs: [
+        ["Location", report.location || "unknown"],
+        ["Confidence", report.confidence],
+        ["Linked conflicts", (report.linked_conflicts || []).length],
+      ],
+      callout: "Keep the report factual, then compare it against conflicts and impacts before changing the COP.",
+    });
+    return;
+  }
+
+  const recommendation = lastItem(snapshot.recommendations || []);
+  if (recommendation) {
+    renderFocusCard({
+      kind: "Human review option",
+      tone: "recommendation",
+      title: readableLabel(recommendation.recommendation_type),
+      caption: "Potential resolution path returned by CORE",
+      summary: recommendation.text || "Recommendation packet available.",
+      pairs: [
+        ["Confidence", recommendation.confidence],
+        ["Human review", recommendation.required_human_review ? "Required" : "Optional"],
+        ["Tradeoffs", (recommendation.tradeoffs || []).length],
+      ],
+      callout: recommendation.rationale || "Review the risks and assumptions before using this option.",
+    });
+    return;
+  }
+
+  const advisory = lastItem(snapshot.advisories || []);
+  if (advisory) {
+    renderFocusCard({
+      kind: "Advisory packet",
+      tone: "advisory",
+      title: advisory.recipient_id || "C5ISR advisory",
+      caption: "Advisory returned for human review",
+      summary: advisory.summary || "Advisory packet available.",
+      pairs: [
+        ["Confidence", advisory.confidence],
+        ["Time", formatTime(advisory.timestamp)],
+      ],
+      callout: "Share this advisory with the right reviewer before changing the operational picture.",
+    });
+    return;
+  }
+
+  const track = (snapshot.tracks || [])[0];
+  if (track) {
+    renderFocusCard({
+      kind: "COP track",
+      tone: "",
+      title: track.label || "Track",
+      caption: "Current visible track on the COP map",
+      summary: track.summary || "Track state available on the map and track list.",
+      pairs: [
+        ["Location", track.location],
+        ["State", track.lifecycle || track.status],
+        ["Confidence", track.confidence],
+      ],
+      callout: "Check the latest report and mission context before promoting this track into a stronger assumption.",
+    });
+    return;
+  }
+
+  const brain = lastItem(snapshot.brain || []);
+  if (brain) {
+    renderFocusCard({
+      kind: "BRAIN reachback",
+      tone: "brain-chat",
+      title: `${brain.answer.confidence_band || "limited"} confidence guidance`,
+      caption: "Doctrine and SOP reachback for the COP manager",
+      summary: brain.answer.answer_text || "BRAIN answer available.",
+      pairs: [
+        ["Reachback", brain.answer.core_reachback_used ? "Used" : "Not used"],
+        ["References", (brain.answer.references || []).join(", ") || "none"],
+      ],
+      callout: "Use BRAIN as supporting context, then keep the final decision with the human chain.",
+    });
+    return;
+  }
+
+  if (snapshot.mission && snapshot.mission.id) {
+    renderFocusCard({
+      kind: "Mission context",
+      tone: "",
+      title: snapshot.mission.mission_statement,
+      caption: snapshot.mission.commander_intent || "Current commander intent",
+      summary: "Mission framing is loaded and ready to compare against incoming reports and impacts.",
+      pairs: [
+        ["Routes", (snapshot.mission.routes || []).join(", ") || "none"],
+        ["Areas", (snapshot.mission.named_areas || []).join(", ") || "none"],
+      ],
+      callout: "Keep this frame in view when deciding whether a new report changes the operational picture.",
+    });
+    return;
+  }
+
+  const entry = lastItem(snapshot.timeline || []);
+  if (entry) {
+    renderFocusCard({
+      kind: "Timeline update",
+      tone: "timeline",
+      title: readableLabel(entry.kind),
+      caption: `Latest platform trace at ${formatTime(entry.timestamp)}`,
+      summary: entry.summary || "Timeline entry recorded.",
+    });
+    return;
+  }
+
+  renderFocusCard(null);
+}
+
 function renderTracks(cop) {
   c5.copMap.querySelectorAll(".track-marker").forEach((marker) => marker.remove());
   c5.copName.textContent = cop.name || "empty";
@@ -215,6 +429,7 @@ function renderMission(mission) {
   c5.missionContext.innerHTML = `
     <article class="item">
       <strong>${escapeHTML(mission.mission_statement)}</strong>
+      <span class="item-caption">Commander intent and named operational frame</span>
       <span>${escapeHTML(mission.commander_intent)}</span>
       ${pairGrid([
         ["Routes", (mission.routes || []).join(", ") || "none"],
@@ -233,6 +448,7 @@ function renderReports(reports) {
   renderList(c5.reportList, reports.slice(-10).reverse(), "No reports", (report) => `
     <article class="item">
       <strong>${escapeHTML(report.reporter_id)} · ${escapeHTML(report.report_type)}</strong>
+      <span class="item-caption">Field report state: ${escapeHTML(reviewLabel(report.review_state))}</span>
       <span>${escapeHTML(report.summary)}</span>
       ${pairGrid([
         ["Location", report.location || "no location"],
@@ -251,12 +467,17 @@ function renderReview(items) {
   renderList(c5.reviewCenterList, items, "No review items", (item) => `
     <article class="item review-item">
       <strong>${escapeHTML(item.kind)} · ${escapeHTML(item.review_state)}</strong>
+      <span class="item-caption">Review queue item for ${escapeHTML(item.assigned_reviewer || item.assigned_role || "human reviewer")}</span>
       <span>${escapeHTML(item.summary)}</span>
       ${pairGrid([
         ["Severity", item.severity],
         ["Assigned", item.assigned_reviewer],
         ["Escalation", item.escalation_state],
       ])}
+      <div class="item-callout">
+        <strong>Reviewer action</strong>
+        <span>${escapeHTML(item.needs_operator_clarification ? "Reach back to the operator for clarification before closing this item." : "Validate the packet and record the review outcome before changing mission assumptions.")}</span>
+      </div>
     </article>
   `);
 }
@@ -266,6 +487,7 @@ function renderMissionImpacts(impacts) {
   renderList(c5.missionImpactList, impacts, "No mission impacts", (impact) => `
     <article class="item mission-impact">
       <strong>${escapeHTML(impact.impacted_area)}</strong>
+      <span class="item-caption">Potential effect on mission planning or COP confidence</span>
       <span>${escapeHTML(impact.summary)}</span>
       ${pairGrid([
         ["Confidence", impact.confidence],
@@ -281,6 +503,7 @@ function renderAdvisories(advisories) {
   renderList(c5.advisoryList, advisories.slice(-10).reverse(), "No advisories", (advisory) => `
     <article class="item advisory">
       <strong>${escapeHTML(advisory.recipient_id)}</strong>
+      <span class="item-caption">Advisory returned to C5ISR for human review</span>
       <span>${escapeHTML(advisory.summary)}</span>
       ${pairGrid([["Confidence", advisory.confidence]])}
     </article>
@@ -292,11 +515,16 @@ function renderConflicts(conflicts) {
   renderList(c5.conflictList, conflicts.slice(-8).reverse(), "No conflicts", (conflict) => `
     <article class="item conflict">
       <strong>${escapeHTML(conflict.conflict_type)}</strong>
+      <span class="item-caption">CORE surfaced a conflict and did not decide truth</span>
       <span>${escapeHTML(conflict.explanation)}</span>
       ${pairGrid([
         ["Confidence", conflict.confidence],
         ["Review", conflict.recommended_review_role],
       ])}
+      <div class="item-callout">
+        <strong>First review step</strong>
+        <span>${escapeHTML((conflict.potential_human_resolutions || [])[0] || "Compare the linked reports before changing the COP.")}</span>
+      </div>
     </article>
   `);
 }
@@ -306,11 +534,16 @@ function renderRecommendations(recommendations) {
   renderList(c5.recommendationList, recommendations.slice(-8).reverse(), "No recommendations", (recommendation) => `
     <article class="item recommendation">
       <strong>${escapeHTML(recommendation.recommendation_type)}</strong>
+      <span class="item-caption">Potential human resolution path</span>
       <span>${escapeHTML(recommendation.text)}</span>
       ${pairGrid([
         ["Confidence", recommendation.confidence],
         ["Human review", recommendation.required_human_review ? "Required" : "No"],
       ])}
+      <div class="item-callout">
+        <strong>Why this path</strong>
+        <span>${escapeHTML(recommendation.rationale || "Review the assumptions, risks, and tradeoffs before using this option.")}</span>
+      </div>
     </article>
   `);
 }
@@ -320,6 +553,7 @@ function renderBrain(messages) {
   renderList(c5.brainChatList, messages.slice(-5).reverse(), "No Brain chat yet", (message) => `
     <article class="item brain-chat">
       <strong>${escapeHTML(message.answer.confidence_band)} confidence</strong>
+      <span class="item-caption">Doctrine and SOP reachback for C5ISR review</span>
       <span>Q: ${escapeHTML(message.question.text)}</span>
       <span>${escapeHTML(message.answer.answer_text)}</span>
       ${pairGrid([
@@ -334,6 +568,7 @@ function renderTimeline(timeline) {
   renderList(c5.timelineList, timeline.slice(-8).reverse(), "No timeline entries", (entry) => `
     <article class="item timeline">
       <strong>${escapeHTML(entry.kind)} · ${formatTime(entry.timestamp)}</strong>
+      <span class="item-caption">Latest trace from the synthetic advisory workflow</span>
       <span>${escapeHTML(entry.summary)}</span>
     </article>
   `);
@@ -382,8 +617,21 @@ async function refresh() {
     renderRecommendations(recommendations.recommendations || []);
     renderBrain(brain.messages || []);
     renderTimeline(timeline.timeline || []);
+    renderOperationalFocus({
+      mission: mission.mission || {},
+      tracks: cop.tracks || [],
+      reports: reports.operator_reports || [],
+      review: review.items || [],
+      impacts: impacts.mission_impacts || [],
+      advisories: advisories.advisories || [],
+      conflicts: conflicts.conflicts || [],
+      recommendations: recommendations.recommendations || [],
+      brain: brain.messages || [],
+      timeline: timeline.timeline || [],
+    });
   } catch (error) {
     setStatus(false, error.message || "API offline");
+    renderFocusCard(null);
   }
 }
 

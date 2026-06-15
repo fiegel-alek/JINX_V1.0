@@ -86,6 +86,7 @@
               <h2>Scenario Library</h2>
               <span id="library-count">0</span>
             </div>
+            <p class="section-note">Load a saved scenario to replay a known problem, or build a new synthetic inject chain when you need a fresh rehearsal path.</p>
             <div id="scenario-library-list" class="list empty">No simulation scenarios</div>
           </section>
 
@@ -94,6 +95,7 @@
               <h2>Mixed Inject Builder</h2>
               <span>Synthetic only</span>
             </div>
+            <p class="section-note">Scenario scripts are kept deterministic and labeled so teams can compare expected outputs against actual platform behavior.</p>
             <form id="scenario-form" class="form">
               <div class="form-grid">
                 <label>
@@ -161,6 +163,15 @@
             </div>
             <div id="scenario-timeline-list" class="list empty">No inject timeline loaded</div>
           </section>
+        </section>
+
+        <section class="panel focus-panel">
+          <div class="section-head">
+            <h2>Scenario Brief</h2>
+            <span id="sim-focus-kind">No scenario selected</span>
+          </div>
+          <p class="section-note">This brief keeps the current replay objective, drift, and next review step in one place while the operator works the controls.</p>
+          <div id="sim-focus-card" class="list focus-card empty">No scenario brief yet</div>
         </section>
 
         <section class="data-grid two" id="results">

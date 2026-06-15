@@ -85,6 +85,7 @@
               <h2>Intelligence Summary</h2>
               <span>Synthetic or authorized</span>
             </div>
+            <p class="section-note">Publish summaries with reliability, location, and related entity links so analysts can trace what changed and who it may affect.</p>
             <form id="intel-summary-form" class="form">
               <div class="form-grid">
                 <label>
@@ -124,6 +125,7 @@
               <h2>ISR Feed Snapshot</h2>
               <span>Controlled plugin path</span>
             </div>
+            <p class="section-note">Feed snapshots stay descriptive and bounded. The desk shows the operational meaning without turning feeds into hidden authority.</p>
             <form id="isr-feed-form" class="form">
               <div class="form-grid">
                 <label>
@@ -161,6 +163,15 @@
               <button type="submit">Publish ISR Feed</button>
             </form>
           </section>
+        </section>
+
+        <section class="panel focus-panel">
+          <div class="section-head">
+            <h2>Current Focus</h2>
+            <span id="intel-focus-kind">Awaiting analyst packet</span>
+          </div>
+          <p class="section-note">The fusion desk holds the most important correlation or impact here so the analyst can see what to validate first.</p>
+          <div id="intel-focus-card" class="list focus-card empty">No INTEL focus yet</div>
         </section>
 
         <section class="data-grid" id="correlation">

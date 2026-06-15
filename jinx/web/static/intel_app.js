@@ -13,6 +13,8 @@ const intel = {
   noticeList: document.querySelector("#notice-list"),
   feedList: document.querySelector("#feed-list"),
   brainChatList: document.querySelector("#brain-chat-list"),
+  focusKind: document.querySelector("#intel-focus-kind"),
+  focusCard: document.querySelector("#intel-focus-card"),
   summaryForm: document.querySelector("#intel-summary-form"),
   feedForm: document.querySelector("#isr-feed-form"),
   brainChatForm: document.querySelector("#brain-chat-form"),
@@ -86,6 +88,29 @@ function escapeHTML(value) {
   })[char]);
 }
 
+function pairGrid(pairs) {
+  const rows = pairs.filter(([, value]) => value !== undefined && value !== null && String(value) !== "");
+  if (!rows.length) return "";
+  return `
+    <div class="data-pair-grid">
+      ${rows.map(([label, value]) => `
+        <div class="data-pair">
+          <span class="data-pair-label">${escapeHTML(label)}</span>
+          <span class="data-pair-value">${escapeHTML(value)}</span>
+        </div>
+      `).join("")}
+    </div>
+  `;
+}
+
+function readableLabel(value) {
+  return String(value || "unknown").replaceAll("_", " ");
+}
+
+function lastItem(records) {
+  return records && records.length ? records[records.length - 1] : null;
+}
+
 function renderList(container, records, emptyText, renderer) {
   if (!records || records.length === 0) {
     container.className = "list empty";
@@ -100,6 +125,142 @@ function setStatus(ok, text) {
   intel.apiStatus.classList.toggle("ok", ok);
   intel.apiStatus.classList.toggle("error", !ok);
   intel.apiStatusText.textContent = text;
+}
+
+function renderFocusCard(packet) {
+  if (!packet) {
+    intel.focusKind.textContent = "Awaiting analyst packet";
+    intel.focusCard.className = "list focus-card empty";
+    intel.focusCard.textContent = "No INTEL focus yet";
+    return;
+  }
+  intel.focusKind.textContent = packet.kind;
+  intel.focusCard.className = "list focus-card";
+  intel.focusCard.innerHTML = `
+    <article class="item ${escapeHTML(packet.tone || "")}">
+      <strong>${escapeHTML(packet.title)}</strong>
+      <span class="item-caption">${escapeHTML(packet.caption || "")}</span>
+      <span>${escapeHTML(packet.summary || "")}</span>
+      ${pairGrid(packet.pairs || [])}
+      ${packet.callout ? `
+        <div class="item-callout">
+          <strong>${escapeHTML(packet.calloutTitle || "Analyst next step")}</strong>
+          <span>${escapeHTML(packet.callout)}</span>
+        </div>
+      ` : ""}
+    </article>
+  `;
+}
+
+function renderIntelFocus(snapshot) {
+  const correlation = lastItem(snapshot.correlations || []);
+  if (correlation) {
+    renderFocusCard({
+      kind: "Correlation packet",
+      tone: "conflict",
+      title: readableLabel(correlation.impacted_area),
+      caption: `Correlation ready for ${correlation.recommended_review_role || "analyst review"}`,
+      summary: correlation.summary || "Correlation packet available.",
+      pairs: [
+        ["Confidence", correlation.confidence],
+        ["Reliability", correlation.reliability],
+        ["Affected modules", (correlation.affected_modules || []).join(", ") || "none"],
+      ],
+      callout: `Validate restrictions and reliability before promoting this packet into a planning assumption.`,
+    });
+    return;
+  }
+
+  const impact = lastItem(snapshot.impacts || []);
+  if (impact) {
+    renderFocusCard({
+      kind: "Impact packet",
+      tone: "mission-impact",
+      title: readableLabel(impact.impacted_area),
+      caption: "Potential intelligence-derived effect on other packages",
+      summary: impact.summary || "INTEL impact packet available.",
+      pairs: [
+        ["Confidence", impact.confidence],
+        ["Delivered", impact.delivered_to_core ? "Yes" : "Pending"],
+        ["Review role", impact.recommended_review_role || "intel analyst"],
+      ],
+      callout: "Confirm the impact before it changes planning, communications, or route assumptions.",
+    });
+    return;
+  }
+
+  const notice = lastItem(snapshot.notices || []);
+  if (notice) {
+    renderFocusCard({
+      kind: "Module notice",
+      tone: "advisory",
+      title: notice.module || "affected module",
+      caption: "Affected package notice sent from the fusion desk",
+      summary: notice.summary || "Module notice available.",
+      pairs: [
+        ["Confidence", notice.confidence],
+        ["Human review", notice.required_human_review ? "Required" : "Optional"],
+        ["Delivered", notice.delivered_to_core ? "Yes" : "Pending"],
+      ],
+      callout: "Make sure the receiving package gets only the bounded context it is licensed to see.",
+    });
+    return;
+  }
+
+  const summary = lastItem(snapshot.summaries || []);
+  if (summary) {
+    renderFocusCard({
+      kind: "Summary intake",
+      tone: "isr",
+      title: summary.source_category || "summary",
+      caption: `Reliability ${summary.reliability || "unknown"} with restrictions preserved`,
+      summary: summary.summary || "INTEL summary available.",
+      pairs: [
+        ["Locations", (summary.related_locations || []).join(", ") || "none"],
+        ["Entities", (summary.related_entities || []).join(", ") || "none"],
+        ["Restrictions", (summary.restrictions || []).join("; ") || "none"],
+      ],
+      callout: "Keep provenance and restrictions visible before using this summary outside the INTEL desk.",
+    });
+    return;
+  }
+
+  const feed = lastItem(snapshot.feeds || []);
+  if (feed) {
+    renderFocusCard({
+      kind: "ISR feed snapshot",
+      tone: "isr",
+      title: feed.feed_name || "ISR feed",
+      caption: `${feed.status || "unknown"} coverage for ${feed.coverage_area || "the current area"}`,
+      summary: feed.summary || "ISR feed snapshot available.",
+      pairs: [
+        ["Feed type", feed.feed_type],
+        ["Coverage", feed.coverage_area],
+        ["Status", feed.status],
+      ],
+      callout: "Use the feed description to guide analysis, not as a hidden authority layer.",
+    });
+    return;
+  }
+
+  const brain = lastItem(snapshot.brain || []);
+  if (brain) {
+    renderFocusCard({
+      kind: "BRAIN reachback",
+      tone: "brain-chat",
+      title: `${brain.answer.confidence_band || "limited"} confidence guidance`,
+      caption: "Doctrine and review support for the analyst",
+      summary: brain.answer.answer_text || "BRAIN answer available.",
+      pairs: [
+        ["Reachback", brain.answer.core_reachback_used ? "Used" : "Not used"],
+        ["References", (brain.answer.references || []).join(", ") || "none"],
+      ],
+      callout: "Use BRAIN to frame the review, then keep final analytic judgment with the human analyst.",
+    });
+    return;
+  }
+
+  renderFocusCard(null);
 }
 
 function renderSession(sessionDoc, entitlements) {
@@ -144,9 +305,13 @@ function renderSummaries(summaries) {
   renderList(intel.summaryList, summaries.slice(-8).reverse(), "No summaries", (summary) => `
     <article class="item isr">
       <strong>${escapeHTML(summary.source_category)} · reliability ${escapeHTML(summary.reliability)}</strong>
+      <span class="item-caption">INTEL summary with restrictions and provenance preserved</span>
       <span>${escapeHTML(summary.summary)}</span>
-      <span>restrictions: ${escapeHTML((summary.restrictions || []).join("; ") || "none")}</span>
-      <span>locations: ${escapeHTML((summary.related_locations || []).join(", ") || "none")}</span>
+      ${pairGrid([
+        ["Restrictions", (summary.restrictions || []).join("; ") || "none"],
+        ["Locations", (summary.related_locations || []).join(", ") || "none"],
+        ["Entities", (summary.related_entities || []).join(", ") || "none"],
+      ])}
     </article>
   `);
 }
@@ -157,8 +322,12 @@ function renderImpacts(impacts) {
   renderList(intel.impactList, impacts.slice(-8).reverse(), "No impacts", (impact) => `
     <article class="item mission-impact">
       <strong>${escapeHTML(impact.impacted_area)} · confidence ${escapeHTML(impact.confidence)}</strong>
+      <span class="item-caption">Potential operational effect derived from INTEL context</span>
       <span>${escapeHTML(impact.summary)}</span>
-      <span>delivered to Core: ${escapeHTML(impact.delivered_to_core)}</span>
+      ${pairGrid([
+        ["Delivered to Core", impact.delivered_to_core ? "Yes" : "Pending"],
+        ["Review role", impact.recommended_review_role || "intel analyst"],
+      ])}
     </article>
   `);
 }
@@ -169,9 +338,17 @@ function renderCorrelations(correlations) {
   renderList(intel.correlationList, correlations.slice(-8).reverse(), "No correlation packets", (correlation) => `
     <article class="item conflict">
       <strong>${escapeHTML(correlation.impacted_area)} · confidence ${escapeHTML(correlation.confidence)}</strong>
+      <span class="item-caption">Correlation packet waiting for analyst validation</span>
       <span>${escapeHTML(correlation.summary)}</span>
-      <span>modules: ${escapeHTML((correlation.affected_modules || []).join(", ") || "none")}</span>
-      <span>restrictions: ${escapeHTML((correlation.restrictions || []).join("; ") || "none")}</span>
+      ${pairGrid([
+        ["Modules", (correlation.affected_modules || []).join(", ") || "none"],
+        ["Restrictions", (correlation.restrictions || []).join("; ") || "none"],
+        ["Reliability", correlation.reliability],
+      ])}
+      <div class="item-callout">
+        <strong>Analyst step</strong>
+        <span>Validate restrictions and reliability before promoting this correlation into a broader package assumption.</span>
+      </div>
     </article>
   `);
 }
@@ -182,8 +359,12 @@ function renderNotices(notices) {
   renderList(intel.noticeList, notices.slice(-10).reverse(), "No module notices", (notice) => `
     <article class="item advisory">
       <strong>${escapeHTML(notice.module)} · confidence ${escapeHTML(notice.confidence)}</strong>
+      <span class="item-caption">Bounded notice for an affected licensed package</span>
       <span>${escapeHTML(notice.summary)}</span>
-      <span>human review ${notice.required_human_review ? "required" : "missing"} · delivered ${escapeHTML(notice.delivered_to_core)}</span>
+      ${pairGrid([
+        ["Human review", notice.required_human_review ? "Required" : "Optional"],
+        ["Delivered", notice.delivered_to_core ? "Yes" : "Pending"],
+      ])}
     </article>
   `);
 }
@@ -193,7 +374,11 @@ function renderFeeds(feeds) {
   renderList(intel.feedList, feeds.slice(-8).reverse(), "No ISR feeds", (feed) => `
     <article class="item isr">
       <strong>${escapeHTML(feed.feed_name)} · ${escapeHTML(feed.status)}</strong>
-      <span>${escapeHTML(feed.feed_type)} · ${escapeHTML(feed.coverage_area)}</span>
+      <span class="item-caption">Current feed snapshot for analyst awareness</span>
+      ${pairGrid([
+        ["Feed type", feed.feed_type],
+        ["Coverage", feed.coverage_area],
+      ])}
       <span>${escapeHTML(feed.summary)}</span>
     </article>
   `);
@@ -204,8 +389,13 @@ function renderBrain(messages) {
   renderList(intel.brainChatList, messages.slice(-6).reverse(), "No Brain chat yet", (message) => `
     <article class="item brain-chat">
       <strong>${escapeHTML(message.answer.confidence_band)} · Core reachback ${message.answer.core_reachback_used ? "used" : "not used"}</strong>
+      <span class="item-caption">Doctrine and review logic support for the INTEL desk</span>
       <span>Q: ${escapeHTML(message.question.text)}</span>
       <span>${escapeHTML(message.answer.answer_text)}</span>
+      ${pairGrid([
+        ["References", (message.answer.references || []).join(", ") || "none"],
+        ["Reachback", message.answer.core_reachback_used ? "Used" : "Not used"],
+      ])}
     </article>
   `);
 }
@@ -231,8 +421,17 @@ async function refresh() {
     renderNotices(notices.intel_module_notices || []);
     renderFeeds(feeds.isr_feeds || []);
     renderBrain(brain.messages || []);
+    renderIntelFocus({
+      summaries: summaries.intelligence_summaries || [],
+      impacts: impacts.intelligence_impacts || [],
+      correlations: correlations.intel_correlations || [],
+      notices: notices.intel_module_notices || [],
+      feeds: feeds.isr_feeds || [],
+      brain: brain.messages || [],
+    });
   } catch (error) {
     setStatus(false, error.message || "API offline");
+    renderFocusCard(null);
   }
 }
 

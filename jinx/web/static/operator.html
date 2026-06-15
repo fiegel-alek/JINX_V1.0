@@ -79,6 +79,7 @@
           <h2>Local COP</h2>
           <span id="focus-label">Local operator area</span>
         </div>
+        <p class="section-note">Tap a local point, then open the action menu to send a short factual report without losing map context.</p>
         <div id="operator-map" class="operator-map" aria-label="local operator map">
           <div class="operator-map-crosshair"></div>
         </div>
@@ -86,12 +87,13 @@
       </section>
 
       <details id="action-drawer" class="operator-drawer">
-        <summary>Report Actions</summary>
+        <summary>Action Menu</summary>
         <div class="operator-drawer-body">
           <div class="section-head">
             <h2>Quick Actions</h2>
             <span id="selected-action-label">Position</span>
           </div>
+          <p class="section-note">Use the quick action buttons to preload a clean report, then only edit what changed on the ground.</p>
           <div id="action-grid" class="operator-actions"></div>
           <form id="report-form" class="form">
             <input type="hidden" name="report_type" value="position_update" />
@@ -122,6 +124,7 @@
             <h2>Advisory Inbox</h2>
             <span id="workspace-status">ready</span>
           </div>
+          <p class="section-note">This inbox stays tight on local advisories so the operator sees only what matters in the immediate area.</p>
           <div id="advisory-list" class="list empty">No advisories</div>
         </section>
 
