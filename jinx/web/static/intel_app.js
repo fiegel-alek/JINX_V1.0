@@ -2,6 +2,11 @@ const intel = {
   apiStatus: document.querySelector("#api-status"),
   apiStatusText: document.querySelector("#api-status-text"),
   roleSelect: document.querySelector("#role-select"),
+  usernameInput: document.querySelector("#username-input"),
+  sessionButton: document.querySelector("#session-button"),
+  clearSessionButton: document.querySelector("#clear-session-button"),
+  sessionSummary: document.querySelector("#session-summary"),
+  sessionMode: document.querySelector("#session-mode"),
   summaryList: document.querySelector("#summary-list"),
   impactList: document.querySelector("#impact-list"),
   correlationList: document.querySelector("#correlation-list"),
@@ -14,18 +19,50 @@ const intel = {
   refreshButton: document.querySelector("#refresh-button"),
 };
 
+const SESSION_KEY = "jinx-intel-session-token";
+const PACKAGE_NAME = "intel";
+const USERNAME_BY_ROLE = {
+  intel_analyst: "intel-alpha",
+  auditor: "auditor-alpha",
+  system_administrator: "systemadministrator",
+};
+
 function activeRole() {
   return intel.roleSelect.value;
 }
 
+function activeSessionToken() {
+  return localStorage.getItem(SESSION_KEY) || "";
+}
+
+function suggestedUsername() {
+  return USERNAME_BY_ROLE[activeRole()] || "intel-alpha";
+}
+
+function syncSuggestedUsername(force = false) {
+  if (intel.usernameInput.readOnly) return;
+  const current = intel.usernameInput.value.trim();
+  if (force || !current || Object.values(USERNAME_BY_ROLE).includes(current)) {
+    intel.usernameInput.value = suggestedUsername();
+  }
+}
+
+function activeUsername() {
+  return intel.usernameInput.value.trim() || suggestedUsername();
+}
+
 function requestHeaders(extra = {}) {
-  return { "X-JINX-Role": activeRole(), "X-JINX-Package": "intel", ...extra };
+  const sessionToken = activeSessionToken();
+  return sessionToken
+    ? { "X-JINX-Role": activeRole(), "X-JINX-Package": PACKAGE_NAME, "X-JINX-Session": sessionToken, ...extra }
+    : { "X-JINX-Role": activeRole(), "X-JINX-Package": PACKAGE_NAME, ...extra };
 }
 
 async function getJSON(url) {
   const response = await fetch(url, { headers: requestHeaders() });
-  if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
-  return response.json();
+  const body = await response.json();
+  if (!response.ok) throw new Error(body.error || `${response.status} ${response.statusText}`);
+  return body;
 }
 
 async function postJSON(url, payload = {}) {
@@ -65,8 +102,40 @@ function setStatus(ok, text) {
   intel.apiStatusText.textContent = text;
 }
 
-function renderEntitlements(entitlements) {
+function renderSession(sessionDoc, entitlements) {
+  const session = sessionDoc.session || null;
+  if (!session && activeSessionToken()) {
+    localStorage.removeItem(SESSION_KEY);
+  }
   document.querySelector(".eyebrow").textContent = entitlements.label || "INTEL package";
+  intel.sessionMode.textContent = session ? "Session active" : "Header role mode";
+  intel.roleSelect.disabled = Boolean(session);
+  intel.usernameInput.readOnly = Boolean(session);
+
+  if (session) {
+    const role = String((session.roles || [])[0] || activeRole());
+    if (intel.roleSelect.querySelector(`option[value="${role}"]`)) {
+      intel.roleSelect.value = role;
+    }
+    intel.usernameInput.value = session.username || activeUsername();
+    intel.brainChatForm.elements.user_id.value = session.username || activeUsername();
+    intel.sessionSummary.className = "list";
+    intel.sessionSummary.innerHTML = `
+      <article class="item advisory">
+        <strong>${escapeHTML(session.display_name || session.username)}</strong>
+        <span>${escapeHTML(role)} · package ${escapeHTML(session.package || PACKAGE_NAME)} · session ${escapeHTML(session.id || "unknown")}</span>
+        <span>license ${entitlements.license_active ? "active" : "inactive"} · ${entitlements.simulation_only ? "simulation only" : "controlled adapter enabled"}</span>
+      </article>
+    `;
+    return;
+  }
+
+  syncSuggestedUsername(true);
+  intel.brainChatForm.elements.user_id.value = activeUsername();
+  intel.sessionSummary.className = "list empty";
+  intel.sessionSummary.textContent = entitlements.license_active
+    ? `No active session. ${entitlements.label || "INTEL package"} is running in local header mode.`
+    : `${entitlements.label || "INTEL package"} license is inactive.`;
 }
 
 function renderSummaries(summaries) {
@@ -143,9 +212,10 @@ function renderBrain(messages) {
 
 async function refresh() {
   try {
-    const [health, entitlements, summaries, impacts, correlations, notices, feeds, brain] = await Promise.all([
+    const [health, entitlements, sessionDoc, summaries, impacts, correlations, notices, feeds, brain] = await Promise.all([
       getJSON("/api/health"),
       getJSON("/api/entitlements"),
+      getJSON("/api/auth/session"),
       getJSON("/api/intel/summaries"),
       getJSON("/api/intel/impacts"),
       getJSON("/api/intel/correlations"),
@@ -153,8 +223,8 @@ async function refresh() {
       getJSON("/api/intel/isr-feeds"),
       getJSON("/api/brain/chat-messages"),
     ]);
+    renderSession(sessionDoc, entitlements);
     setStatus(true, `${health.service} API online`);
-    renderEntitlements(entitlements);
     renderSummaries(summaries.intelligence_summaries || []);
     renderImpacts(impacts.intelligence_impacts || []);
     renderCorrelations(correlations.intel_correlations || []);
@@ -162,8 +232,27 @@ async function refresh() {
     renderFeeds(feeds.isr_feeds || []);
     renderBrain(brain.messages || []);
   } catch (error) {
-    setStatus(false, "API offline");
+    setStatus(false, error.message || "API offline");
   }
+}
+
+async function connectSession() {
+  const response = await postJSON("/api/auth/login", {
+    username: activeUsername(),
+    package: PACKAGE_NAME,
+  });
+  localStorage.setItem(SESSION_KEY, response.session.id);
+}
+
+async function clearSession() {
+  if (activeSessionToken()) {
+    try {
+      await postJSON("/api/auth/logout", {});
+    } catch {
+      // Best-effort sign-out for the local synthetic session.
+    }
+  }
+  localStorage.removeItem(SESSION_KEY);
 }
 
 intel.summaryForm.addEventListener("submit", async (event) => {
@@ -186,6 +275,26 @@ intel.brainChatForm.addEventListener("submit", async (event) => {
   await refresh();
 });
 
+intel.sessionButton.addEventListener("click", async () => {
+  try {
+    await connectSession();
+    await refresh();
+  } catch (error) {
+    setStatus(false, error.message || "Session denied");
+  }
+});
+
+intel.clearSessionButton.addEventListener("click", async () => {
+  await clearSession();
+  syncSuggestedUsername(true);
+  await refresh();
+});
+
 intel.refreshButton.addEventListener("click", refresh);
-intel.roleSelect.addEventListener("change", refresh);
+intel.roleSelect.addEventListener("change", async () => {
+  syncSuggestedUsername(true);
+  await refresh();
+});
+
+syncSuggestedUsername(true);
 refresh();

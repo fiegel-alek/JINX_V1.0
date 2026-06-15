@@ -1115,6 +1115,26 @@ class JINXApplicationService:
         except KeyError:
             return {"session": None}
 
+    def revoke_auth_session(self, session_id: str = "") -> dict[str, object]:
+        self._ensure_governance_state()
+        if self.database is None or not session_id:
+            return {"session": None}
+        session = self.auth_session_document(session_id).get("session")
+        if not session:
+            return {"session": None}
+        document = {
+            **session,
+            "status": "inactive",
+            "ended_at": datetime.now(UTC).isoformat(),
+        }
+        self.database.save_document("auth_sessions", session_id, document)
+        self._append_timeline(
+            "auth_session",
+            f"Session revoked for {document['username']} on package {document['package']}.",
+            {"session_id": session_id, "package": str(document.get("package", ""))},
+        )
+        return {"session": document}
+
     def license_state_document(self) -> dict[str, object]:
         self._ensure_governance_state()
         licenses = self.database.list_documents("package_licenses") if self.database else ()

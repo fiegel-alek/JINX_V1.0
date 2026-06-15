@@ -955,6 +955,13 @@ els.authForm.addEventListener("submit", async (event) => {
 });
 
 els.clearSessionButton.addEventListener("click", async () => {
+  if (activeSessionToken()) {
+    try {
+      await postJSON("/api/auth/logout", {});
+    } catch {
+      // Best-effort sign-out for the local synthetic session.
+    }
+  }
   localStorage.removeItem(SESSION_KEY);
   addActivity("Session token cleared; using header-only role mode.");
   await refreshDashboard();

@@ -44,10 +44,24 @@
                 <option value="auditor">Auditor</option>
               </select>
             </label>
+            <label class="session-picker">
+              Session user
+              <input id="username-input" value="c5isr-manager-alpha" />
+            </label>
+            <button id="session-button" type="button">Connect Session</button>
+            <button id="clear-session-button" type="button">Clear Session</button>
             <button id="refresh-button" type="button">Refresh</button>
             <button id="mission-button" type="button">Load Synthetic Mission</button>
           </div>
         </header>
+
+        <section class="panel session-panel">
+          <div class="section-head">
+            <h2>Package Session</h2>
+            <span id="session-mode">Header role mode</span>
+          </div>
+          <div id="session-summary" class="list empty">No active session. Local synthetic package mode is ready.</div>
+        </section>
 
         <section class="metrics" aria-label="C5ISR metrics">
           <article class="metric">

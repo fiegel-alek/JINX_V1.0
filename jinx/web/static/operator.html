@@ -34,6 +34,10 @@
         </div>
         <div class="operator-form-grid">
           <label>
+            Session user
+            <input id="username-input" value="operator-alpha" />
+          </label>
+          <label>
             Operator
             <input id="reporter-id" value="operator-alpha" />
           </label>
@@ -53,6 +57,11 @@
             <input id="sync-state" value="Live" readonly />
           </label>
         </div>
+        <div class="operator-inline-actions">
+          <button id="session-button" type="button">Connect Session</button>
+          <button id="clear-session-button" type="button">Clear Session</button>
+        </div>
+        <div id="session-summary" class="list empty">No active session. Local synthetic package mode is ready.</div>
         <div class="operator-chip-row" aria-label="operator status chips">
           <span class="operator-chip">Queue <strong id="queue-count">0</strong></span>
           <span class="operator-chip">Advisories <strong id="advisory-count">0</strong></span>

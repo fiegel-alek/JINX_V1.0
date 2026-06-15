@@ -1,6 +1,10 @@
 const operator = {
   apiStatus: document.querySelector("#api-status"),
   apiStatusText: document.querySelector("#api-status-text"),
+  usernameInput: document.querySelector("#username-input"),
+  sessionButton: document.querySelector("#session-button"),
+  clearSessionButton: document.querySelector("#clear-session-button"),
+  sessionSummary: document.querySelector("#session-summary"),
   reporterId: document.querySelector("#reporter-id"),
   deviceId: document.querySelector("#device-id"),
   roleSelect: document.querySelector("#role-select"),
@@ -23,6 +27,12 @@ const operator = {
 
 const QUEUE_KEY = "jinx-operator-mini-queue-v1";
 const RECEIPT_KEY = "jinx-operator-mini-receipt-v1";
+const SESSION_KEY = "jinx-operator-session-token";
+const PACKAGE_NAME = "operator";
+const USERNAME_BY_ROLE = {
+  operator: "operator-alpha",
+  system_administrator: "systemadministrator",
+};
 
 let workspaceState = null;
 let selectedMarkerId = "";
@@ -31,6 +41,26 @@ let lastReceipt = loadReceipt();
 
 function activeRole() {
   return operator.roleSelect.value;
+}
+
+function activeSessionToken() {
+  return localStorage.getItem(SESSION_KEY) || "";
+}
+
+function suggestedUsername() {
+  return USERNAME_BY_ROLE[activeRole()] || "operator-alpha";
+}
+
+function syncSuggestedUsername(force = false) {
+  if (operator.usernameInput.readOnly) return;
+  const current = operator.usernameInput.value.trim();
+  if (force || !current || Object.values(USERNAME_BY_ROLE).includes(current)) {
+    operator.usernameInput.value = suggestedUsername();
+  }
+}
+
+function activeUsername() {
+  return operator.usernameInput.value.trim() || suggestedUsername();
 }
 
 function reporterId() {
@@ -42,13 +72,23 @@ function deviceId() {
 }
 
 function requestHeaders(extra = {}) {
-  return {
-    "X-JINX-Role": activeRole(),
-    "X-JINX-Package": "operator",
-    "X-JINX-Reporter": reporterId(),
-    "X-JINX-Device": deviceId(),
-    ...extra,
-  };
+  const sessionToken = activeSessionToken();
+  return sessionToken
+    ? {
+      "X-JINX-Role": activeRole(),
+      "X-JINX-Package": PACKAGE_NAME,
+      "X-JINX-Session": sessionToken,
+      "X-JINX-Reporter": reporterId(),
+      "X-JINX-Device": deviceId(),
+      ...extra,
+    }
+    : {
+      "X-JINX-Role": activeRole(),
+      "X-JINX-Package": PACKAGE_NAME,
+      "X-JINX-Reporter": reporterId(),
+      "X-JINX-Device": deviceId(),
+      ...extra,
+    };
 }
 
 async function getJSON(url) {
@@ -88,6 +128,45 @@ function setStatus(ok, text) {
   operator.apiStatus.classList.toggle("ok", ok);
   operator.apiStatus.classList.toggle("error", !ok);
   operator.apiStatusText.textContent = text;
+}
+
+function renderSession(sessionDoc, entitlements) {
+  const session = sessionDoc.session || null;
+  if (!session && activeSessionToken()) {
+    localStorage.removeItem(SESSION_KEY);
+  }
+  if (session) {
+    const role = String((session.roles || [])[0] || activeRole());
+    if (operator.roleSelect.querySelector(`option[value="${role}"]`)) {
+      operator.roleSelect.value = role;
+    }
+    operator.roleSelect.disabled = true;
+    operator.usernameInput.readOnly = true;
+    operator.reporterId.readOnly = true;
+    operator.deviceId.readOnly = true;
+    operator.usernameInput.value = session.username || activeUsername();
+    operator.reporterId.value = session.reporter_id || reporterId();
+    operator.deviceId.value = session.device_id || deviceId();
+    operator.sessionSummary.className = "list";
+    operator.sessionSummary.innerHTML = `
+      <article class="item advisory">
+        <strong>${escapeHTML(session.display_name || session.username)}</strong>
+        <span>${escapeHTML(role)} · package ${escapeHTML(session.package || PACKAGE_NAME)} · session ${escapeHTML(session.id || "unknown")}</span>
+        <span>license ${entitlements.license_active ? "active" : "inactive"} · reporter ${escapeHTML(session.reporter_id || "operator-alpha")} · device ${escapeHTML(session.device_id || "operator-mini-001")}</span>
+      </article>
+    `;
+    return;
+  }
+
+  operator.roleSelect.disabled = false;
+  operator.usernameInput.readOnly = false;
+  operator.reporterId.readOnly = false;
+  operator.deviceId.readOnly = false;
+  syncSuggestedUsername(true);
+  operator.sessionSummary.className = "list empty";
+  operator.sessionSummary.textContent = entitlements.license_active
+    ? `No active session. ${entitlements.label || "Operator package"} is running in local header mode.`
+    : `${entitlements.label || "Operator package"} license is inactive.`;
 }
 
 function renderList(container, records, emptyText, renderer) {
@@ -285,21 +364,45 @@ function renderWorkspace(workspace) {
 
 async function refresh() {
   try {
-    const [health, workspaceDoc, brainDoc] = await Promise.all([
+    const [health, entitlements, sessionDoc, workspaceDoc, brainDoc] = await Promise.all([
       getJSON("/api/health"),
+      getJSON("/api/entitlements"),
+      getJSON("/api/auth/session"),
       getJSON("/api/operator/workspace"),
       getJSON("/api/operator/brain-thread"),
     ]);
+    renderSession(sessionDoc, entitlements);
     setStatus(true, `${health.service} link live`);
     renderWorkspace(workspaceDoc.operator_workspace || {});
     renderBrain(brainDoc.messages || []);
     saveQueue(queueItems());
     renderReceipt();
   } catch (error) {
-    setStatus(false, "Queued / offline");
+    setStatus(false, error.message || "Queued / offline");
     saveQueue(queueItems());
     renderReceipt();
   }
+}
+
+async function connectSession() {
+  const response = await postJSON("/api/auth/login", {
+    username: activeUsername(),
+    package: PACKAGE_NAME,
+    reporter_id: reporterId(),
+    device_id: deviceId(),
+  });
+  localStorage.setItem(SESSION_KEY, response.session.id);
+}
+
+async function clearSession() {
+  if (activeSessionToken()) {
+    try {
+      await postJSON("/api/auth/logout", {});
+    } catch {
+      // Best-effort sign-out for the local synthetic session.
+    }
+  }
+  localStorage.removeItem(SESSION_KEY);
 }
 
 async function queueReport(payload) {
@@ -337,7 +440,7 @@ async function syncQueuedReports() {
         summary: entry.summary,
       });
       saveReceipt(response);
-    } catch (error) {
+    } catch {
       remaining.push(entry);
     }
   }
@@ -384,7 +487,7 @@ operator.reportForm.addEventListener("submit", async (event) => {
     renderReceipt();
     await syncQueuedReports();
     await refresh();
-  } catch (error) {
+  } catch {
     await queueReport(payload);
   }
 });
@@ -403,12 +506,31 @@ operator.brainChatForm.addEventListener("submit", async (event) => {
   await refresh();
 });
 
+operator.sessionButton.addEventListener("click", async () => {
+  try {
+    await connectSession();
+    await refresh();
+  } catch (error) {
+    setStatus(false, error.message || "Session denied");
+  }
+});
+
+operator.clearSessionButton.addEventListener("click", async () => {
+  await clearSession();
+  syncSuggestedUsername(true);
+  await refresh();
+});
+
 operator.refreshButton.addEventListener("click", refresh);
 operator.reporterId.addEventListener("change", refresh);
 operator.deviceId.addEventListener("change", refresh);
-operator.roleSelect.addEventListener("change", refresh);
+operator.roleSelect.addEventListener("change", async () => {
+  syncSuggestedUsername(true);
+  await refresh();
+});
 
 saveQueue(queueItems());
+syncSuggestedUsername(true);
 updateDrawerButton();
 renderReceipt();
 refresh();

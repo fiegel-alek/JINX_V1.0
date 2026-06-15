@@ -139,8 +139,13 @@ nav a:hover {
   width: 180px;
 }
 
-.role-picker select {
+.role-picker select,
+.session-picker input {
   min-height: 40px;
+}
+
+.session-picker {
+  width: 220px;
 }
 
 .eyebrow {
@@ -220,6 +225,10 @@ h2 {
 .panel,
 .map-card {
   padding: 16px;
+}
+
+.session-panel {
+  margin-top: 16px;
 }
 
 .section-head {
@@ -758,6 +767,7 @@ button {
 
   .top-actions,
   .role-picker,
+  .session-picker,
   .top-actions button {
     width: 100%;
   }

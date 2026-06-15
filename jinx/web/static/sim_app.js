@@ -2,6 +2,11 @@ const sim = {
   apiStatus: document.querySelector("#api-status"),
   apiStatusText: document.querySelector("#api-status-text"),
   roleSelect: document.querySelector("#role-select"),
+  usernameInput: document.querySelector("#username-input"),
+  sessionButton: document.querySelector("#session-button"),
+  clearSessionButton: document.querySelector("#clear-session-button"),
+  sessionSummary: document.querySelector("#session-summary"),
+  sessionMode: document.querySelector("#session-mode"),
   refreshButton: document.querySelector("#refresh-button"),
   scenarioForm: document.querySelector("#scenario-form"),
   scrubForm: document.querySelector("#scrub-form"),
@@ -15,6 +20,14 @@ const sim = {
   brainChatList: document.querySelector("#brain-chat-list"),
 };
 
+const SESSION_KEY = "jinx-sim-session-token";
+const PACKAGE_NAME = "sim";
+const USERNAME_BY_ROLE = {
+  simulation_operator: "sim-operator-alpha",
+  c5isr_manager: "c5isr-manager-alpha",
+  system_administrator: "systemadministrator",
+};
+
 let library = [];
 let selectedScenarioId = "";
 
@@ -22,8 +35,31 @@ function activeRole() {
   return sim.roleSelect.value;
 }
 
+function activeSessionToken() {
+  return localStorage.getItem(SESSION_KEY) || "";
+}
+
+function suggestedUsername() {
+  return USERNAME_BY_ROLE[activeRole()] || "sim-operator-alpha";
+}
+
+function syncSuggestedUsername(force = false) {
+  if (sim.usernameInput.readOnly) return;
+  const current = sim.usernameInput.value.trim();
+  if (force || !current || Object.values(USERNAME_BY_ROLE).includes(current)) {
+    sim.usernameInput.value = suggestedUsername();
+  }
+}
+
+function activeUsername() {
+  return sim.usernameInput.value.trim() || suggestedUsername();
+}
+
 function requestHeaders(extra = {}) {
-  return { "X-JINX-Role": activeRole(), "X-JINX-Package": "sim", ...extra };
+  const sessionToken = activeSessionToken();
+  return sessionToken
+    ? { "X-JINX-Role": activeRole(), "X-JINX-Package": PACKAGE_NAME, "X-JINX-Session": sessionToken, ...extra }
+    : { "X-JINX-Role": activeRole(), "X-JINX-Package": PACKAGE_NAME, ...extra };
 }
 
 async function getJSON(url) {
@@ -70,12 +106,44 @@ function setStatus(ok, text) {
   sim.apiStatusText.textContent = text;
 }
 
-function selectedScenario() {
-  return library.find((scenario) => scenario.id === selectedScenarioId) || library[0] || null;
+function renderSession(sessionDoc, entitlements) {
+  const session = sessionDoc.session || null;
+  if (!session && activeSessionToken()) {
+    localStorage.removeItem(SESSION_KEY);
+  }
+  document.querySelector(".eyebrow").textContent = entitlements.label || "SIM package";
+  sim.sessionMode.textContent = session ? "Session active" : "Header role mode";
+  sim.roleSelect.disabled = Boolean(session);
+  sim.usernameInput.readOnly = Boolean(session);
+
+  if (session) {
+    const role = String((session.roles || [])[0] || activeRole());
+    if (sim.roleSelect.querySelector(`option[value="${role}"]`)) {
+      sim.roleSelect.value = role;
+    }
+    sim.usernameInput.value = session.username || activeUsername();
+    sim.brainChatForm.elements.user_id.value = session.username || activeUsername();
+    sim.sessionSummary.className = "list";
+    sim.sessionSummary.innerHTML = `
+      <article class="item advisory">
+        <strong>${escapeHTML(session.display_name || session.username)}</strong>
+        <span>${escapeHTML(role)} · package ${escapeHTML(session.package || PACKAGE_NAME)} · session ${escapeHTML(session.id || "unknown")}</span>
+        <span>license ${entitlements.license_active ? "active" : "inactive"} · ${entitlements.simulation_only ? "simulation only" : "controlled adapter enabled"}</span>
+      </article>
+    `;
+    return;
+  }
+
+  syncSuggestedUsername(true);
+  sim.brainChatForm.elements.user_id.value = activeUsername();
+  sim.sessionSummary.className = "list empty";
+  sim.sessionSummary.textContent = entitlements.license_active
+    ? `No active session. ${entitlements.label || "SIM package"} is running in local header mode.`
+    : `${entitlements.label || "SIM package"} license is inactive.`;
 }
 
-function renderEntitlements(entitlements) {
-  document.querySelector(".eyebrow").textContent = entitlements.label || "SIM package";
+function selectedScenario() {
+  return library.find((scenario) => scenario.id === selectedScenarioId) || library[0] || null;
 }
 
 function renderMetrics(dashboard) {
@@ -108,7 +176,8 @@ function renderLibrary(scenarios, control) {
 
 function renderControl(control) {
   document.querySelector("#control-status").textContent = control.playback_state || "idle";
-  const summary = [
+  sim.controlSummary.className = "list";
+  sim.controlSummary.innerHTML = [
     `<article class="item advisory">`,
     `<strong>${escapeHTML(control.selected_scenario_name || "No scenario")} · ${escapeHTML(control.selected_scenario_source || "built_in")}</strong>`,
     `<span>clock ${escapeHTML(control.current_offset_seconds)}s / ${escapeHTML(control.duration_seconds)}s</span>`,
@@ -116,8 +185,6 @@ function renderControl(control) {
     `<span>last action ${escapeHTML(control.last_action || "bootstrap")} · latest run ${escapeHTML(control.latest_run_id || "none")}</span>`,
     `</article>`,
   ].join("");
-  sim.controlSummary.className = "list";
-  sim.controlSummary.innerHTML = summary;
 }
 
 function renderTimeline(scenario) {
@@ -167,22 +234,10 @@ function renderComparison(run) {
     return;
   }
   const records = [
-    {
-      title: "Expected outputs",
-      detail: (run.expected_outputs || []).join(", ") || "none",
-    },
-    {
-      title: "Actual outputs",
-      detail: (run.actual_outputs || []).join(", ") || "none",
-    },
-    {
-      title: "Missing outputs",
-      detail: (run.missing_outputs || []).join(", ") || "none",
-    },
-    {
-      title: "Unexpected outputs",
-      detail: (run.unexpected_outputs || []).join(", ") || "none",
-    },
+    { title: "Expected outputs", detail: (run.expected_outputs || []).join(", ") || "none" },
+    { title: "Actual outputs", detail: (run.actual_outputs || []).join(", ") || "none" },
+    { title: "Missing outputs", detail: (run.missing_outputs || []).join(", ") || "none" },
+    { title: "Unexpected outputs", detail: (run.unexpected_outputs || []).join(", ") || "none" },
   ];
   document.querySelector("#comparison-count").textContent = records.length;
   renderList(sim.comparisonList, records, "No comparison packet yet", (record) => `
@@ -206,9 +261,10 @@ function renderBrain(messages) {
 
 async function refresh() {
   try {
-    const [health, entitlements, dashboardDoc, libraryDoc, controlDoc, runsDoc, brainDoc] = await Promise.all([
+    const [health, entitlements, sessionDoc, dashboardDoc, libraryDoc, controlDoc, runsDoc, brainDoc] = await Promise.all([
       getJSON("/api/health"),
       getJSON("/api/entitlements"),
+      getJSON("/api/auth/session"),
       getJSON("/api/sim/dashboard"),
       getJSON("/api/sim/library"),
       getJSON("/api/sim/control"),
@@ -220,7 +276,7 @@ async function refresh() {
     const control = controlDoc.simulation_control || {};
     const runs = runsDoc.simulation_runs || [];
     const latestRun = dashboard.latest_run || runs[runs.length - 1] || null;
-    renderEntitlements(entitlements);
+    renderSession(sessionDoc, entitlements);
     renderMetrics(dashboard);
     renderLibrary(scenarios, control);
     renderControl(control);
@@ -233,6 +289,25 @@ async function refresh() {
   } catch (error) {
     setStatus(false, error.message || "API offline");
   }
+}
+
+async function connectSession() {
+  const response = await postJSON("/api/auth/login", {
+    username: activeUsername(),
+    package: PACKAGE_NAME,
+  });
+  localStorage.setItem(SESSION_KEY, response.session.id);
+}
+
+async function clearSession() {
+  if (activeSessionToken()) {
+    try {
+      await postJSON("/api/auth/logout", {});
+    } catch {
+      // Best-effort sign-out for the local synthetic session.
+    }
+  }
+  localStorage.removeItem(SESSION_KEY);
 }
 
 sim.libraryList.addEventListener("click", async (event) => {
@@ -290,6 +365,26 @@ sim.brainChatForm.addEventListener("submit", async (event) => {
   await refresh();
 });
 
+sim.sessionButton.addEventListener("click", async () => {
+  try {
+    await connectSession();
+    await refresh();
+  } catch (error) {
+    setStatus(false, error.message || "Session denied");
+  }
+});
+
+sim.clearSessionButton.addEventListener("click", async () => {
+  await clearSession();
+  syncSuggestedUsername(true);
+  await refresh();
+});
+
 sim.refreshButton.addEventListener("click", refresh);
-sim.roleSelect.addEventListener("change", refresh);
+sim.roleSelect.addEventListener("change", async () => {
+  syncSuggestedUsername(true);
+  await refresh();
+});
+
+syncSuggestedUsername(true);
 refresh();

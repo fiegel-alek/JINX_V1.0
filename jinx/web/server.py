@@ -433,6 +433,11 @@ class JINXRequestHandler(SimpleHTTPRequestHandler):
             if parsed.path == "/api/auth/login":
                 self._send_json(self.server.api_handlers.login_auth_session(payload), status=201)
                 return
+            if parsed.path == "/api/auth/logout":
+                session = self._current_session()
+                session_id = str(payload.get("session_id", "")) or (str(session.get("id", "")) if session else "")
+                self._send_json(self.server.service.revoke_auth_session(session_id), status=200)
+                return
             if parsed.path == "/api/admin/users":
                 self._require_permission("admin:all")
                 self._send_json(self.server.api_handlers.register_identity_user(payload), status=201)

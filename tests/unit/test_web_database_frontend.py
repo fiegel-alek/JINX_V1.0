@@ -290,6 +290,19 @@ class WebDatabaseFrontendTests(TestCase):
             self.assertTrue(service.boundary_controls_document()["boundary_controls"]["packages"])
             self.assertTrue(service.adapter_registry_document()["adapters"])
 
+    def test_auth_session_can_be_revoked(self) -> None:
+        with TemporaryDirectory() as tmp:
+            database = SQLiteJINXDatabase(Path(tmp) / "jinx.sqlite3")
+            service = JINXApplicationService(database=database)
+
+            issued = service.issue_auth_session("operator-alpha", "operator")["session"]
+            revoked = service.revoke_auth_session(issued["id"])["session"]
+            identity = service.identity_users_document()["identity"]
+
+            self.assertEqual(revoked["status"], "inactive")
+            self.assertIn("ended_at", revoked)
+            self.assertEqual(identity["active_session_count"], 0)
+
     def test_api_handler_validates_cop_track(self) -> None:
         with TemporaryDirectory() as tmp:
             database = SQLiteJINXDatabase(Path(tmp) / "jinx.sqlite3")
@@ -347,6 +360,7 @@ class WebDatabaseFrontendTests(TestCase):
         self.assertIn("/api/core/fabric", (static_root / "app.js").read_text(encoding="utf-8"))
         self.assertIn("/api/auth/login", (static_root / "app.js").read_text(encoding="utf-8"))
         self.assertIn("/api/auth/session", (static_root / "app.js").read_text(encoding="utf-8"))
+        self.assertIn("/api/auth/logout", (static_root / "app.js").read_text(encoding="utf-8"))
         self.assertIn("/api/admin/users", (static_root / "app.js").read_text(encoding="utf-8"))
         self.assertIn("/api/admin/licenses", (static_root / "app.js").read_text(encoding="utf-8"))
         self.assertIn("/api/admin/adapters", (static_root / "app.js").read_text(encoding="utf-8"))
@@ -410,6 +424,26 @@ class WebDatabaseFrontendTests(TestCase):
         self.assertIn("/api/operator/workspace", (static_root / "operator_app.js").read_text(encoding="utf-8"))
         self.assertIn("/api/operator/report", (static_root / "operator_app.js").read_text(encoding="utf-8"))
         self.assertIn("/api/operator/brain-thread", (static_root / "operator_app.js").read_text(encoding="utf-8"))
+        self.assertIn("Session user", (static_root / "c5isr.html").read_text(encoding="utf-8"))
+        self.assertIn("Session user", (static_root / "net.html").read_text(encoding="utf-8"))
+        self.assertIn("Session user", (static_root / "intel.html").read_text(encoding="utf-8"))
+        self.assertIn("Session user", (static_root / "sim.html").read_text(encoding="utf-8"))
+        self.assertIn("Session user", (static_root / "operator.html").read_text(encoding="utf-8"))
+        self.assertIn("/api/auth/login", (static_root / "c5isr_app.js").read_text(encoding="utf-8"))
+        self.assertIn("/api/auth/session", (static_root / "c5isr_app.js").read_text(encoding="utf-8"))
+        self.assertIn("/api/auth/logout", (static_root / "c5isr_app.js").read_text(encoding="utf-8"))
+        self.assertIn("/api/auth/login", (static_root / "net_app.js").read_text(encoding="utf-8"))
+        self.assertIn("/api/auth/session", (static_root / "net_app.js").read_text(encoding="utf-8"))
+        self.assertIn("/api/auth/logout", (static_root / "net_app.js").read_text(encoding="utf-8"))
+        self.assertIn("/api/auth/login", (static_root / "intel_app.js").read_text(encoding="utf-8"))
+        self.assertIn("/api/auth/session", (static_root / "intel_app.js").read_text(encoding="utf-8"))
+        self.assertIn("/api/auth/logout", (static_root / "intel_app.js").read_text(encoding="utf-8"))
+        self.assertIn("/api/auth/login", (static_root / "sim_app.js").read_text(encoding="utf-8"))
+        self.assertIn("/api/auth/session", (static_root / "sim_app.js").read_text(encoding="utf-8"))
+        self.assertIn("/api/auth/logout", (static_root / "sim_app.js").read_text(encoding="utf-8"))
+        self.assertIn("/api/auth/login", (static_root / "operator_app.js").read_text(encoding="utf-8"))
+        self.assertIn("/api/auth/session", (static_root / "operator_app.js").read_text(encoding="utf-8"))
+        self.assertIn("/api/auth/logout", (static_root / "operator_app.js").read_text(encoding="utf-8"))
 
     def test_package_specific_frontend_surfaces_are_separated(self) -> None:
         static_root = Path("jinx/web/static")
@@ -427,6 +461,7 @@ class WebDatabaseFrontendTests(TestCase):
         self.assertIn("Common Operational Picture", c5isr_html)
         self.assertIn("/api/cop", c5isr_js)
         self.assertIn("/api/operator-reports", c5isr_js)
+        self.assertIn("/api/auth/login", c5isr_js)
         self.assertNotIn("/api/net", c5isr_js)
         self.assertNotIn("JINX-NET", c5isr_html + c5isr_js)
         self.assertNotIn("NET Issues", c5isr_html + c5isr_js)
@@ -436,6 +471,7 @@ class WebDatabaseFrontendTests(TestCase):
         self.assertIn("/api/entitlements", net_js)
         self.assertIn("/api/net/plans", net_js)
         self.assertIn("/api/net/issues", net_js)
+        self.assertIn("/api/auth/login", net_js)
         self.assertNotIn("/api/operator-reports", net_js)
         self.assertNotIn("/api/cop", net_js)
         self.assertNotIn("Common Operational Picture", net_html + net_js)
@@ -446,6 +482,7 @@ class WebDatabaseFrontendTests(TestCase):
         self.assertIn("/api/intel/correlations", intel_js)
         self.assertIn("/api/intel/module-notices", intel_js)
         self.assertIn("/api/intel/isr-feeds", intel_js)
+        self.assertIn("/api/auth/login", intel_js)
         self.assertNotIn("/api/cop", intel_js)
         self.assertNotIn("/api/net", intel_js)
         self.assertNotIn("/api/operator-reports", intel_js)
@@ -458,6 +495,7 @@ class WebDatabaseFrontendTests(TestCase):
         self.assertIn("/api/sim/control", sim_js)
         self.assertIn("/api/sim/scenarios", sim_js)
         self.assertIn("/api/sim/run", sim_js)
+        self.assertIn("/api/auth/login", sim_js)
         self.assertNotIn("/api/cop", sim_js)
         self.assertNotIn("/api/net", sim_js)
         self.assertNotIn("/api/intel", sim_js)
@@ -470,6 +508,7 @@ class WebDatabaseFrontendTests(TestCase):
         self.assertIn("/api/operator/workspace", operator_js)
         self.assertIn("/api/operator/report", operator_js)
         self.assertIn("/api/operator/brain-thread", operator_js)
+        self.assertIn("/api/auth/login", operator_js)
         self.assertNotIn("/api/cop", operator_js)
         self.assertNotIn("/api/net", operator_js)
         self.assertNotIn("/api/intel", operator_js)

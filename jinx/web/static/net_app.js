@@ -2,6 +2,11 @@ const net = {
   apiStatus: document.querySelector("#api-status"),
   apiStatusText: document.querySelector("#api-status-text"),
   roleSelect: document.querySelector("#role-select"),
+  usernameInput: document.querySelector("#username-input"),
+  sessionButton: document.querySelector("#session-button"),
+  clearSessionButton: document.querySelector("#clear-session-button"),
+  sessionSummary: document.querySelector("#session-summary"),
+  sessionMode: document.querySelector("#session-mode"),
   planList: document.querySelector("#net-plan-list"),
   issueList: document.querySelector("#net-issue-list"),
   validationList: document.querySelector("#net-validation-list"),
@@ -13,20 +18,50 @@ const net = {
   refreshButton: document.querySelector("#refresh-button"),
 };
 
-let entitlementProfile = null;
+const SESSION_KEY = "jinx-net-session-token";
+const PACKAGE_NAME = "net";
+const USERNAME_BY_ROLE = {
+  network_manager: "net-manager-alpha",
+  auditor: "auditor-alpha",
+  system_administrator: "systemadministrator",
+};
 
 function activeRole() {
   return net.roleSelect.value;
 }
 
+function activeSessionToken() {
+  return localStorage.getItem(SESSION_KEY) || "";
+}
+
+function suggestedUsername() {
+  return USERNAME_BY_ROLE[activeRole()] || "net-manager-alpha";
+}
+
+function syncSuggestedUsername(force = false) {
+  if (net.usernameInput.readOnly) return;
+  const current = net.usernameInput.value.trim();
+  if (force || !current || Object.values(USERNAME_BY_ROLE).includes(current)) {
+    net.usernameInput.value = suggestedUsername();
+  }
+}
+
+function activeUsername() {
+  return net.usernameInput.value.trim() || suggestedUsername();
+}
+
 function requestHeaders(extra = {}) {
-  return { "X-JINX-Role": activeRole(), "X-JINX-Package": "net", ...extra };
+  const sessionToken = activeSessionToken();
+  return sessionToken
+    ? { "X-JINX-Role": activeRole(), "X-JINX-Package": PACKAGE_NAME, "X-JINX-Session": sessionToken, ...extra }
+    : { "X-JINX-Role": activeRole(), "X-JINX-Package": PACKAGE_NAME, ...extra };
 }
 
 async function getJSON(url) {
   const response = await fetch(url, { headers: requestHeaders() });
-  if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
-  return response.json();
+  const body = await response.json();
+  if (!response.ok) throw new Error(body.error || `${response.status} ${response.statusText}`);
+  return body;
 }
 
 async function postJSON(url, payload = {}) {
@@ -64,6 +99,42 @@ function setStatus(ok, text) {
   net.apiStatus.classList.toggle("ok", ok);
   net.apiStatus.classList.toggle("error", !ok);
   net.apiStatusText.textContent = text;
+}
+
+function renderSession(sessionDoc, entitlements) {
+  const session = sessionDoc.session || null;
+  if (!session && activeSessionToken()) {
+    localStorage.removeItem(SESSION_KEY);
+  }
+  document.querySelector(".eyebrow").textContent = entitlements.label || "NET package";
+  net.sessionMode.textContent = session ? "Session active" : "Header role mode";
+  net.roleSelect.disabled = Boolean(session);
+  net.usernameInput.readOnly = Boolean(session);
+
+  if (session) {
+    const role = String((session.roles || [])[0] || activeRole());
+    if (net.roleSelect.querySelector(`option[value="${role}"]`)) {
+      net.roleSelect.value = role;
+    }
+    net.usernameInput.value = session.username || activeUsername();
+    net.brainChatForm.elements.user_id.value = session.username || activeUsername();
+    net.sessionSummary.className = "list";
+    net.sessionSummary.innerHTML = `
+      <article class="item advisory">
+        <strong>${escapeHTML(session.display_name || session.username)}</strong>
+        <span>${escapeHTML(role)} · package ${escapeHTML(session.package || PACKAGE_NAME)} · session ${escapeHTML(session.id || "unknown")}</span>
+        <span>license ${entitlements.license_active ? "active" : "inactive"} · ${entitlements.simulation_only ? "simulation only" : "controlled adapter enabled"}</span>
+      </article>
+    `;
+    return;
+  }
+
+  syncSuggestedUsername(true);
+  net.brainChatForm.elements.user_id.value = activeUsername();
+  net.sessionSummary.className = "list empty";
+  net.sessionSummary.textContent = entitlements.license_active
+    ? `No active session. ${entitlements.label || "NET package"} is running in local header mode.`
+    : `${entitlements.label || "NET package"} license is inactive.`;
 }
 
 function renderPlans(plans) {
@@ -115,11 +186,6 @@ function renderAdvisories(advisories) {
   `);
 }
 
-function renderEntitlements(entitlements) {
-  entitlementProfile = entitlements;
-  document.querySelector(".eyebrow").textContent = entitlements.label || "NET package";
-}
-
 function renderBrain(messages) {
   document.querySelector("#brain-chat-count").textContent = messages.length;
   renderList(net.brainChatList, messages.slice(-6).reverse(), "No Brain chat yet", (message) => `
@@ -133,25 +199,45 @@ function renderBrain(messages) {
 
 async function refresh() {
   try {
-    const [health, entitlements, plans, issues, validations, advisories, brain] = await Promise.all([
+    const [health, entitlements, sessionDoc, plans, issues, validations, advisories, brain] = await Promise.all([
       getJSON("/api/health"),
       getJSON("/api/entitlements"),
+      getJSON("/api/auth/session"),
       getJSON("/api/net/plans"),
       getJSON("/api/net/issues"),
       getJSON("/api/net/validation-runs"),
       getJSON("/api/net/advisories"),
       getJSON("/api/brain/chat-messages"),
     ]);
+    renderSession(sessionDoc, entitlements);
     setStatus(true, `${health.service} API online`);
-    renderEntitlements(entitlements);
     renderPlans(plans.network_plans || []);
     renderIssues(issues.network_issues || []);
     renderValidationRuns(validations.network_validation_runs || []);
     renderAdvisories(advisories.network_advisories || []);
     renderBrain(brain.messages || []);
   } catch (error) {
-    setStatus(false, "API offline");
+    setStatus(false, error.message || "API offline");
   }
+}
+
+async function connectSession() {
+  const response = await postJSON("/api/auth/login", {
+    username: activeUsername(),
+    package: PACKAGE_NAME,
+  });
+  localStorage.setItem(SESSION_KEY, response.session.id);
+}
+
+async function clearSession() {
+  if (activeSessionToken()) {
+    try {
+      await postJSON("/api/auth/logout", {});
+    } catch {
+      // Best-effort sign-out for the local synthetic session.
+    }
+  }
+  localStorage.removeItem(SESSION_KEY);
 }
 
 async function submitPlan(form) {
@@ -177,6 +263,26 @@ net.brainChatForm.addEventListener("submit", async (event) => {
   await refresh();
 });
 
+net.sessionButton.addEventListener("click", async () => {
+  try {
+    await connectSession();
+    await refresh();
+  } catch (error) {
+    setStatus(false, error.message || "Session denied");
+  }
+});
+
+net.clearSessionButton.addEventListener("click", async () => {
+  await clearSession();
+  syncSuggestedUsername(true);
+  await refresh();
+});
+
 net.refreshButton.addEventListener("click", refresh);
-net.roleSelect.addEventListener("change", refresh);
+net.roleSelect.addEventListener("change", async () => {
+  syncSuggestedUsername(true);
+  await refresh();
+});
+
+syncSuggestedUsername(true);
 refresh();

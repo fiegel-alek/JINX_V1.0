@@ -2,6 +2,11 @@ const c5 = {
   apiStatus: document.querySelector("#api-status"),
   apiStatusText: document.querySelector("#api-status-text"),
   roleSelect: document.querySelector("#role-select"),
+  usernameInput: document.querySelector("#username-input"),
+  sessionButton: document.querySelector("#session-button"),
+  clearSessionButton: document.querySelector("#clear-session-button"),
+  sessionSummary: document.querySelector("#session-summary"),
+  sessionMode: document.querySelector("#session-mode"),
   copName: document.querySelector("#cop-name"),
   copMap: document.querySelector("#cop-map"),
   trackList: document.querySelector("#track-list"),
@@ -20,18 +25,51 @@ const c5 = {
   missionButton: document.querySelector("#mission-button"),
 };
 
+const SESSION_KEY = "jinx-c5isr-session-token";
+const PACKAGE_NAME = "c5isr";
+const USERNAME_BY_ROLE = {
+  c5isr_manager: "c5isr-manager-alpha",
+  operator: "operator-alpha",
+  commander: "systemadministrator",
+  auditor: "auditor-alpha",
+};
+
 function activeRole() {
   return c5.roleSelect.value;
 }
 
+function activeSessionToken() {
+  return localStorage.getItem(SESSION_KEY) || "";
+}
+
+function suggestedUsername() {
+  return USERNAME_BY_ROLE[activeRole()] || "c5isr-manager-alpha";
+}
+
+function syncSuggestedUsername(force = false) {
+  if (c5.usernameInput.readOnly) return;
+  const current = c5.usernameInput.value.trim();
+  if (force || !current || Object.values(USERNAME_BY_ROLE).includes(current)) {
+    c5.usernameInput.value = suggestedUsername();
+  }
+}
+
+function activeUsername() {
+  return c5.usernameInput.value.trim() || suggestedUsername();
+}
+
 function headers(extra = {}) {
-  return { "X-JINX-Role": activeRole(), "X-JINX-Package": "c5isr", ...extra };
+  const sessionToken = activeSessionToken();
+  return sessionToken
+    ? { "X-JINX-Role": activeRole(), "X-JINX-Package": PACKAGE_NAME, "X-JINX-Session": sessionToken, ...extra }
+    : { "X-JINX-Role": activeRole(), "X-JINX-Package": PACKAGE_NAME, ...extra };
 }
 
 async function getJSON(url) {
   const response = await fetch(url, { headers: headers() });
-  if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
-  return response.json();
+  const body = await response.json();
+  if (!response.ok) throw new Error(body.error || `${response.status} ${response.statusText}`);
+  return body;
 }
 
 async function postJSON(url, payload = {}) {
@@ -69,6 +107,42 @@ function setStatus(ok, text) {
   c5.apiStatus.classList.toggle("ok", ok);
   c5.apiStatus.classList.toggle("error", !ok);
   c5.apiStatusText.textContent = text;
+}
+
+function renderSession(sessionDoc, entitlements) {
+  const session = sessionDoc.session || null;
+  if (!session && activeSessionToken()) {
+    localStorage.removeItem(SESSION_KEY);
+  }
+  document.querySelector(".eyebrow").textContent = entitlements.label || "C5ISR package";
+  c5.sessionMode.textContent = session ? "Session active" : "Header role mode";
+  c5.roleSelect.disabled = Boolean(session);
+  c5.usernameInput.readOnly = Boolean(session);
+
+  if (session) {
+    const role = String((session.roles || [])[0] || activeRole());
+    if (c5.roleSelect.querySelector(`option[value="${role}"]`)) {
+      c5.roleSelect.value = role;
+    }
+    c5.usernameInput.value = session.username || activeUsername();
+    c5.brainChatForm.elements.user_id.value = session.username || activeUsername();
+    c5.sessionSummary.className = "list";
+    c5.sessionSummary.innerHTML = `
+      <article class="item advisory">
+        <strong>${escapeHTML(session.display_name || session.username)}</strong>
+        <span>${escapeHTML(role)} · package ${escapeHTML(session.package || PACKAGE_NAME)} · session ${escapeHTML(session.id || "unknown")}</span>
+        <span>license ${entitlements.license_active ? "active" : "inactive"} · ${entitlements.simulation_only ? "simulation only" : "controlled adapter enabled"}</span>
+      </article>
+    `;
+    return;
+  }
+
+  syncSuggestedUsername(true);
+  c5.brainChatForm.elements.user_id.value = activeUsername();
+  c5.sessionSummary.className = "list empty";
+  c5.sessionSummary.textContent = entitlements.license_active
+    ? `No active session. ${entitlements.label || "C5ISR package"} is running in local header mode.`
+    : `${entitlements.label || "C5ISR package"} license is inactive.`;
 }
 
 function reviewLabel(state = "new") {
@@ -222,6 +296,8 @@ async function refresh() {
   try {
     const [
       health,
+      entitlements,
+      sessionDoc,
       cop,
       mission,
       reports,
@@ -234,6 +310,8 @@ async function refresh() {
       timeline,
     ] = await Promise.all([
       getJSON("/api/health"),
+      getJSON("/api/entitlements"),
+      getJSON("/api/auth/session"),
       getJSON("/api/cop"),
       getJSON("/api/mission-context"),
       getJSON("/api/operator-reports"),
@@ -245,6 +323,7 @@ async function refresh() {
       getJSON("/api/brain/chat-messages"),
       getJSON("/api/timeline"),
     ]);
+    renderSession(sessionDoc, entitlements);
     setStatus(true, `${health.service} API online`);
     renderTracks(cop);
     renderMission(mission.mission);
@@ -257,8 +336,27 @@ async function refresh() {
     renderBrain(brain.messages || []);
     renderTimeline(timeline.timeline || []);
   } catch (error) {
-    setStatus(false, "API offline");
+    setStatus(false, error.message || "API offline");
   }
+}
+
+async function connectSession() {
+  const response = await postJSON("/api/auth/login", {
+    username: activeUsername(),
+    package: PACKAGE_NAME,
+  });
+  localStorage.setItem(SESSION_KEY, response.session.id);
+}
+
+async function clearSession() {
+  if (activeSessionToken()) {
+    try {
+      await postJSON("/api/auth/logout", {});
+    } catch {
+      // Best-effort sign-out for the local synthetic session.
+    }
+  }
+  localStorage.removeItem(SESSION_KEY);
 }
 
 c5.reportForm.addEventListener("submit", async (event) => {
@@ -285,6 +383,26 @@ c5.missionButton.addEventListener("click", async () => {
   await refresh();
 });
 
+c5.sessionButton.addEventListener("click", async () => {
+  try {
+    await connectSession();
+    await refresh();
+  } catch (error) {
+    setStatus(false, error.message || "Session denied");
+  }
+});
+
+c5.clearSessionButton.addEventListener("click", async () => {
+  await clearSession();
+  syncSuggestedUsername(true);
+  await refresh();
+});
+
 c5.refreshButton.addEventListener("click", refresh);
-c5.roleSelect.addEventListener("change", refresh);
+c5.roleSelect.addEventListener("change", async () => {
+  syncSuggestedUsername(true);
+  await refresh();
+});
+
+syncSuggestedUsername(true);
 refresh();
