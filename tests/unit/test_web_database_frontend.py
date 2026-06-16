@@ -137,6 +137,38 @@ class WebDatabaseFrontendTests(TestCase):
             self.assertGreaterEqual(database.count("policy_decisions"), 1)
             self.assertGreaterEqual(database.count("provenance_records"), 1)
 
+    def test_api_handler_ingests_integrator_message_and_routes(self) -> None:
+        with TemporaryDirectory() as tmp:
+            database = SQLiteJINXDatabase(Path(tmp) / "jinx.sqlite3")
+            handlers = JINXAPIHandlers(JINXApplicationService(database=database))
+
+            response = handlers.submit_integrator_message(
+                {
+                    "message_family": "j-series",
+                    "raw_text": (
+                        "message_type: j-series track update\n"
+                        "originator: unit-alpha\n"
+                        "recipient: review-cell\n"
+                        "summary: Synthetic communications and track update for bounded review.\n"
+                        "transport: fabric-shadow\n"
+                        "precedence: routine\n"
+                        "location: grid-alpha\n"
+                        "tags: communications,track\n"
+                    ),
+                }
+            )
+
+            self.assertEqual(response["route_count"], 3)
+            self.assertEqual(response["delivered_routes"], 3)
+            self.assertEqual(database.count("integrator_messages"), 1)
+            self.assertEqual(database.count("integrator_parser_runs"), 1)
+            self.assertEqual(database.count("integrator_routes"), 3)
+            self.assertGreaterEqual(database.count("events"), 1)
+            self.assertGreaterEqual(database.count("analysis_runs"), 1)
+            fabric = handlers.service.fabric_monitor_document()["fabric"]
+            self.assertTrue(any(message["payload_schema"] == "message_intake.v1" for message in fabric["messages"]))
+            self.assertEqual(database.list_documents("integrator_messages")[0]["message_family"], "j-series")
+
     def test_sprint5_operator_loop_and_scenario_runner(self) -> None:
         with TemporaryDirectory() as tmp:
             database = SQLiteJINXDatabase(Path(tmp) / "jinx.sqlite3")
@@ -643,6 +675,10 @@ class WebDatabaseFrontendTests(TestCase):
         self.assertIn("/api/intel/correlations", (static_root / "intel_app.js").read_text(encoding="utf-8"))
         self.assertIn("/api/intel/module-notices", (static_root / "intel_app.js").read_text(encoding="utf-8"))
         self.assertIn("/api/intel/isr-feeds", (static_root / "intel_app.js").read_text(encoding="utf-8"))
+        self.assertIn("JINX-Integrator Intake Desk", (static_root / "integrator.html").read_text(encoding="utf-8"))
+        self.assertIn("/api/integrator/messages", (static_root / "integrator_app.js").read_text(encoding="utf-8"))
+        self.assertIn("/api/integrator/routes", (static_root / "integrator_app.js").read_text(encoding="utf-8"))
+        self.assertIn("/api/integrator/parser-runs", (static_root / "integrator_app.js").read_text(encoding="utf-8"))
         self.assertIn("JINX-Operator Mini", (static_root / "operator.html").read_text(encoding="utf-8"))
         self.assertIn("/api/operator/workspace", (static_root / "operator_app.js").read_text(encoding="utf-8"))
         self.assertIn("/api/operator/report", (static_root / "operator_app.js").read_text(encoding="utf-8"))
@@ -650,24 +686,29 @@ class WebDatabaseFrontendTests(TestCase):
         self.assertIn("Session user", (static_root / "c5isr.html").read_text(encoding="utf-8"))
         self.assertIn("Session user", (static_root / "net.html").read_text(encoding="utf-8"))
         self.assertIn("Session user", (static_root / "intel.html").read_text(encoding="utf-8"))
+        self.assertIn("Session user", (static_root / "integrator.html").read_text(encoding="utf-8"))
         self.assertIn("Session user", (static_root / "sim.html").read_text(encoding="utf-8"))
         self.assertIn("Session user", (static_root / "operator.html").read_text(encoding="utf-8"))
         self.assertIn("field-help", (static_root / "c5isr.html").read_text(encoding="utf-8"))
         self.assertIn("field-help", (static_root / "net.html").read_text(encoding="utf-8"))
         self.assertIn("field-help", (static_root / "intel.html").read_text(encoding="utf-8"))
+        self.assertIn("field-help", (static_root / "integrator.html").read_text(encoding="utf-8"))
         self.assertIn("field-help", (static_root / "sim.html").read_text(encoding="utf-8"))
         self.assertIn("field-help", (static_root / "operator.html").read_text(encoding="utf-8"))
         self.assertIn("section-note", (static_root / "operator.html").read_text(encoding="utf-8"))
         self.assertIn("Current Focus", (static_root / "c5isr.html").read_text(encoding="utf-8"))
         self.assertIn("Current Focus", (static_root / "net.html").read_text(encoding="utf-8"))
         self.assertIn("Current Focus", (static_root / "intel.html").read_text(encoding="utf-8"))
+        self.assertIn("Current Focus", (static_root / "integrator.html").read_text(encoding="utf-8"))
         self.assertIn("Scenario Brief", (static_root / "sim.html").read_text(encoding="utf-8"))
         self.assertIn("data-pair-grid", (static_root / "operator_app.js").read_text(encoding="utf-8"))
         self.assertIn("data-pair-grid", (static_root / "c5isr_app.js").read_text(encoding="utf-8"))
         self.assertIn("data-pair-grid", (static_root / "net_app.js").read_text(encoding="utf-8"))
+        self.assertIn("data-pair-grid", (static_root / "integrator_app.js").read_text(encoding="utf-8"))
         self.assertIn("renderOperationalFocus", (static_root / "c5isr_app.js").read_text(encoding="utf-8"))
         self.assertIn("renderNetFocus", (static_root / "net_app.js").read_text(encoding="utf-8"))
         self.assertIn("renderIntelFocus", (static_root / "intel_app.js").read_text(encoding="utf-8"))
+        self.assertIn("renderFocus", (static_root / "integrator_app.js").read_text(encoding="utf-8"))
         self.assertIn("renderScenarioBrief", (static_root / "sim_app.js").read_text(encoding="utf-8"))
         self.assertIn("/api/auth/login", (static_root / "c5isr_app.js").read_text(encoding="utf-8"))
         self.assertIn("/api/auth/session", (static_root / "c5isr_app.js").read_text(encoding="utf-8"))
@@ -678,6 +719,9 @@ class WebDatabaseFrontendTests(TestCase):
         self.assertIn("/api/auth/login", (static_root / "intel_app.js").read_text(encoding="utf-8"))
         self.assertIn("/api/auth/session", (static_root / "intel_app.js").read_text(encoding="utf-8"))
         self.assertIn("/api/auth/logout", (static_root / "intel_app.js").read_text(encoding="utf-8"))
+        self.assertIn("/api/auth/login", (static_root / "integrator_app.js").read_text(encoding="utf-8"))
+        self.assertIn("/api/auth/session", (static_root / "integrator_app.js").read_text(encoding="utf-8"))
+        self.assertIn("/api/auth/logout", (static_root / "integrator_app.js").read_text(encoding="utf-8"))
         self.assertIn("/api/auth/login", (static_root / "sim_app.js").read_text(encoding="utf-8"))
         self.assertIn("/api/auth/session", (static_root / "sim_app.js").read_text(encoding="utf-8"))
         self.assertIn("/api/auth/logout", (static_root / "sim_app.js").read_text(encoding="utf-8"))
@@ -693,6 +737,8 @@ class WebDatabaseFrontendTests(TestCase):
         net_js = (static_root / "net_app.js").read_text(encoding="utf-8")
         intel_html = (static_root / "intel.html").read_text(encoding="utf-8")
         intel_js = (static_root / "intel_app.js").read_text(encoding="utf-8")
+        integrator_html = (static_root / "integrator.html").read_text(encoding="utf-8")
+        integrator_js = (static_root / "integrator_app.js").read_text(encoding="utf-8")
         sim_html = (static_root / "sim.html").read_text(encoding="utf-8")
         sim_js = (static_root / "sim_app.js").read_text(encoding="utf-8")
         operator_html = (static_root / "operator.html").read_text(encoding="utf-8")
@@ -728,6 +774,19 @@ class WebDatabaseFrontendTests(TestCase):
         self.assertNotIn("/api/operator-reports", intel_js)
         self.assertNotIn("Common Operational Picture", intel_html + intel_js)
         self.assertNotIn("Network Manager", intel_html + intel_js)
+
+        self.assertIn("JINX-Integrator Intake Desk", integrator_html)
+        self.assertIn("/api/integrator/families", integrator_js)
+        self.assertIn("/api/integrator/messages", integrator_js)
+        self.assertIn("/api/integrator/routes", integrator_js)
+        self.assertIn("/api/auth/login", integrator_js)
+        self.assertNotIn("/api/cop", integrator_js)
+        self.assertNotIn("/api/net", integrator_js)
+        self.assertNotIn("/api/intel", integrator_js)
+        self.assertNotIn("/api/operator-reports", integrator_js)
+        self.assertNotIn("Common Operational Picture", integrator_html + integrator_js)
+        self.assertNotIn("Network Manager", integrator_html + integrator_js)
+        self.assertNotIn("Fusion Desk", integrator_html + integrator_js)
 
         self.assertIn("JINX-SIM Control Center", sim_html)
         self.assertIn("/api/sim/dashboard", sim_js)
@@ -780,6 +839,11 @@ class WebDatabaseFrontendTests(TestCase):
         handler._require_permission("net:review")
         handler._require_permission("sim:read")
 
+        handler.headers = {"X-JINX-Role": "integrator_operator"}
+        handler._require_permission("integrator:read")
+        handler._require_permission("integrator:submit")
+        handler._require_permission("brain:chat")
+
         handler.headers = {"X-JINX-Role": "simulation_operator"}
         handler._require_permission("sim:read")
         handler._require_permission("sim:inject")
@@ -809,6 +873,17 @@ class WebDatabaseFrontendTests(TestCase):
             handler._require_permission("cop:read")
         with self.assertRaises(PermissionError):
             handler._require_permission("net:read")
+
+        handler.headers = {"X-JINX-Role": "integrator_operator", "X-JINX-Package": "integrator"}
+        handler._require_permission("integrator:read")
+        handler._require_permission("integrator:submit")
+        handler._require_permission("brain:chat")
+        with self.assertRaises(PermissionError):
+            handler._require_permission("cop:read")
+        with self.assertRaises(PermissionError):
+            handler._require_permission("net:read")
+        with self.assertRaises(PermissionError):
+            handler._require_permission("isr:read")
 
         handler.headers = {"X-JINX-Role": "simulation_operator", "X-JINX-Package": "sim"}
         handler._require_permission("sim:read")
@@ -841,6 +916,8 @@ class WebDatabaseFrontendTests(TestCase):
         self.assertEqual(JINXRequestHandler._app_path("/net"), "/net.html")
         self.assertEqual(JINXRequestHandler._app_path("/apps/intel"), "/intel.html")
         self.assertEqual(JINXRequestHandler._app_path("/intel"), "/intel.html")
+        self.assertEqual(JINXRequestHandler._app_path("/apps/integrator"), "/integrator.html")
+        self.assertEqual(JINXRequestHandler._app_path("/integrator"), "/integrator.html")
         self.assertEqual(JINXRequestHandler._app_path("/apps/sim"), "/sim.html")
         self.assertEqual(JINXRequestHandler._app_path("/sim"), "/sim.html")
         self.assertEqual(JINXRequestHandler._app_path("/apps/operator"), "/operator.html")

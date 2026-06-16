@@ -35,6 +35,7 @@ from jinx.core.schemas import (
     Recommendation,
 )
 from jinx.modules.c5isr import C5ISRIntakeResult, C5ISRReportIntake, COPManager, MissionImpactAnalyzer
+from jinx.modules.integrator import IntegratorParseResult, SyntheticMessageFamilyParser
 from jinx.modules.intel import IntelligenceFusionEngine, IntelligenceFusionResult, IntelligenceSummary, ISRFeedSnapshot
 from jinx.modules.net import NetworkIssue, NetworkPlan, NetworkValidationRun, NetworkValidator
 from jinx.modules.sim import C5ISRScenarioPack, default_c5isr_scenario_packs
@@ -60,6 +61,13 @@ class NetworkPlanResult:
     validation_run: NetworkValidationRun
     issues: tuple[NetworkIssue, ...]
     issue_routes: tuple[RouteResult, ...]
+    core_analysis: object | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class IntegratorMessageResult:
+    parse_result: IntegratorParseResult
+    routes: tuple[RouteResult, ...]
     core_analysis: object | None = None
 
 
@@ -211,6 +219,36 @@ class JINXApplicationService:
             issue_routes=tuple(routes),
             core_analysis=core_analysis,
         )
+
+    def submit_integrator_message(self, parse_result: IntegratorParseResult) -> IntegratorMessageResult:
+        routes: list[RouteResult] = []
+        for target_module in parse_result.intake.route_targets:
+            routes.append(
+                self.router.route(
+                    FabricMessage(
+                        source_module="jinx-integrator",
+                        destination=target_module,
+                        payload_schema="message_intake.v1",
+                        schema_version="1.0",
+                        sensitivity_label="synthetic",
+                        license_scope="integrator",
+                        provenance_ref=parse_result.intake.id,
+                        payload=parse_result.normalized_payload,
+                        data_mode=parse_result.intake.data_mode,
+                        confidence=parse_result.intake.confidence,
+                    )
+                )
+            )
+
+        event = self._event_from_integrator_message(parse_result)
+        self._events.append(event)
+        self._persist_integrator_message(parse_result, tuple(routes), event)
+        core_analysis = self._run_core_analysis()
+        self._refresh_operator_loop(
+            "integrator_message",
+            {"message_id": parse_result.intake.id, "parse_run_id": f"integrator-parse-{parse_result.intake.id}"},
+        )
+        return IntegratorMessageResult(parse_result=parse_result, routes=tuple(routes), core_analysis=core_analysis)
 
     def ingest_intelligence_summary(self, summary: IntelligenceSummary) -> IntelligenceIngestResult:
         fusion = self.intel_fusion.fuse((summary,))
@@ -1146,6 +1184,24 @@ class JINXApplicationService:
                 )
                 produced.append(str(response["id"]))
                 notes = "Adapter run refreshed synthetic mission/geospatial context."
+            elif adapter_id == "adapter-message-integrator":
+                response = handler.submit_integrator_message(
+                    {
+                        "message_family": "j-series",
+                        "raw_text": (
+                            "message_type: j3.5 track update\n"
+                            "originator: unit-alpha\n"
+                            "recipient: review-cell\n"
+                            "summary: Synthetic track and communications status update for replay.\n"
+                            "transport: fabric-shadow\n"
+                            "precedence: routine\n"
+                            "location: grid-alpha\n"
+                            "tags: communications,track\n"
+                        ),
+                    }
+                )
+                produced.extend([response["message_id"], response["parse_run_id"]])
+                notes = "Adapter run created a synthetic JINX-Integrator intake record."
             elif adapter.get("data_mode") == DataMode.LIVE_CONTROLLED_ADAPTER.value:
                 status = "stub_ready"
                 notes = (
@@ -1239,6 +1295,18 @@ class JINXApplicationService:
 
     def network_advisories_document(self) -> dict[str, object]:
         return {"network_advisories": self.database.list_documents("network_advisories") if self.database else []}
+
+    def integrator_messages_document(self) -> dict[str, object]:
+        return {"integrator_messages": self.database.list_documents("integrator_messages") if self.database else []}
+
+    def integrator_parser_runs_document(self) -> dict[str, object]:
+        return {"integrator_parser_runs": self.database.list_documents("integrator_parser_runs") if self.database else []}
+
+    def integrator_routes_document(self) -> dict[str, object]:
+        return {"integrator_routes": self.database.list_documents("integrator_routes") if self.database else []}
+
+    def integrator_profiles_document(self) -> dict[str, object]:
+        return SyntheticMessageFamilyParser.profiles_document()
 
     def intelligence_summaries_document(self) -> dict[str, object]:
         return {
@@ -1407,6 +1475,7 @@ class JINXApplicationService:
                 "recommendations": self.database.count("recommendations"),
                 "mission_impacts": self.database.count("mission_impacts"),
                 "isr_feeds": self.database.count("isr_feeds"),
+                "integrator_messages": self.database.count("integrator_messages"),
                 "brain_chat_messages": self.database.count("brain_chat_messages"),
                 "brain_options": self.database.count("brain_options"),
                 "learning_proposals": self.database.count("learning_proposals"),
@@ -2180,6 +2249,7 @@ class JINXApplicationService:
             "system_administrator": "systemadministrator",
             "c5isr_manager": "c5isr-manager-alpha",
             "network_manager": "net-manager-alpha",
+            "integrator_operator": "integrator-alpha",
             "intel_analyst": "intel-alpha",
             "simulation_operator": "sim-operator-alpha",
             "operator": "operator-alpha",
@@ -2649,14 +2719,28 @@ class JINXApplicationService:
     def _ensure_governance_state(self) -> None:
         if self.database is None:
             return
-        if self.database.count("identity_users") == 0:
-            for document in self._default_identity_user_documents():
+        existing_users = {
+            str(document.get("id", ""))
+            for document in self.database.list_documents("identity_users")
+        }
+        for document in self._default_identity_user_documents():
+            if document["id"] not in existing_users:
                 self.database.save_document("identity_users", document["id"], document)
-        if self.database.count("package_licenses") == 0:
-            for document in self._default_package_license_documents():
+
+        existing_licenses = {
+            str(document.get("package", ""))
+            for document in self.database.list_documents("package_licenses")
+        }
+        for document in self._default_package_license_documents():
+            if document["package"] not in existing_licenses:
                 self.database.save_document("package_licenses", document["package"], document)
-        if self.database.count("adapter_manifests") == 0:
-            for document in self._default_adapter_documents():
+
+        existing_adapters = {
+            str(document.get("id", ""))
+            for document in self.database.list_documents("adapter_manifests")
+        }
+        for document in self._default_adapter_documents():
+            if document["id"] not in existing_adapters:
                 self.database.save_document("adapter_manifests", document["id"], document)
 
     def _default_identity_user_documents(self) -> tuple[dict[str, object], ...]:
@@ -2692,6 +2776,17 @@ class JINXApplicationService:
                 "default_package": "net",
                 "reporter_id": "net-manager-alpha",
                 "device_id": "jinx-net-console",
+                "active": True,
+                "updated_at": now,
+            },
+            {
+                "id": "user-integrator-alpha",
+                "username": "integrator-alpha",
+                "display_name": "Integrator Operator Alpha",
+                "roles": ["integrator_operator"],
+                "default_package": "integrator",
+                "reporter_id": "integrator-alpha",
+                "device_id": "jinx-integrator-console",
                 "active": True,
                 "updated_at": now,
             },
@@ -2778,6 +2873,18 @@ class JINXApplicationService:
                 "simulation_only": True,
                 "controlled_real_adapters_enabled": False,
                 "notes": "NET advisory and synthetic validation only.",
+                "updated_at": now,
+            },
+            {
+                "package": "integrator",
+                "label": "JINX-Integrator Package",
+                "modules": ["core", "brain", "integrator", "sim", "bus"],
+                "apps": ["/apps/integrator"],
+                "active": True,
+                "authorized_users": ["systemadministrator", "integrator-alpha"],
+                "simulation_only": True,
+                "controlled_real_adapters_enabled": False,
+                "notes": "Bounded message-family intake, normalization, and internal routing only.",
                 "updated_at": now,
             },
             {
@@ -2912,6 +3019,21 @@ class JINXApplicationService:
                 "updated_at": now,
             },
             {
+                "id": "adapter-message-integrator",
+                "name": "Message Integrator Stub",
+                "adapter_type": "message_gateway",
+                "target_module": "jinx-integrator",
+                "permission": "mock_adapter:read",
+                "data_mode": DataMode.SYNTHETIC.value,
+                "safety_classification": SafetyClassification.MOCK_ADAPTER.value,
+                "supports_simulation": True,
+                "explicitly_authorized": False,
+                "enabled": False,
+                "status": "available",
+                "notes": "Synthetic message-family intake path for JINX-Integrator.",
+                "updated_at": now,
+            },
+            {
                 "id": "adapter-radio-bridge",
                 "name": "Radio Bridge Controlled Plugin",
                 "adapter_type": "radio_stub",
@@ -3006,6 +3128,10 @@ class JINXApplicationService:
             "intel": {
                 "denied_permission_prefixes": ("operator_report:", "cop:", "mission:", "net:", "human_command:", "ops:"),
                 "summary": "INTEL package exposes contextualization without COP or NET management surfaces.",
+            },
+            "integrator": {
+                "denied_permission_prefixes": ("operator_report:", "cop:", "mission:", "intel:", "isr:", "net:", "human_command:", "ops:", "audit:", "sim:"),
+                "summary": "Integrator package exposes bounded message intake and internal routing review only.",
             },
             "sim": {
                 "denied_permission_prefixes": ("operator_report:", "cop:", "mission:", "intel:", "isr:", "net:", "human_command:", "ops:"),
@@ -3585,6 +3711,7 @@ class JINXApplicationService:
                 "mission_contexts",
                 "brain_chat_messages",
                 "analysis_runs",
+                "integrator_messages",
                 "intelligence_summaries",
                 "isr_feeds",
                 "network_plans",
@@ -3602,6 +3729,7 @@ class JINXApplicationService:
             "mission_contexts": "mission_context_update",
             "brain_chat_messages": "brain_reference_answer",
             "analysis_runs": "core_analysis",
+            "integrator_messages": "message_intake_routed",
             "intelligence_summaries": "intel_summary_ingest",
             "isr_feeds": "isr_feed_publish",
             "network_plans": "network_plan_validation",
@@ -3653,6 +3781,54 @@ class JINXApplicationService:
                 "mission_impact_tags": "communications,network",
             },
             simulation_flag=plan.simulation_flag,
+        )
+
+    def _event_from_integrator_message(self, parse_result: IntegratorParseResult) -> Event:
+        intake = parse_result.intake
+        lowered = f"{intake.message_type} {intake.summary}".lower()
+        if any(term in lowered for term in ("weather", "visibility")):
+            event_type = EventType.WEATHER_IMPACT
+        elif any(term in lowered for term in ("delay", "movement")):
+            event_type = EventType.MOVEMENT_DELAY
+        elif any(term in lowered for term in ("hazard", "threat", "contact")):
+            event_type = EventType.HAZARD
+        elif intake.message_family in {"j-series", "k-series"}:
+            event_type = EventType.COMMUNICATIONS_CHECK
+        elif "position" in lowered or parse_result.extracted_fields.get("location"):
+            event_type = EventType.POSITION_UPDATE
+        else:
+            event_type = EventType.STATUS_UPDATE
+
+        location_label = parse_result.extracted_fields.get("location", "")
+        provenance = ProvenanceRecord(
+            source=intake.id,
+            time_received=datetime.now(UTC),
+            processed_by_module="jinx-integrator",
+            transformations=("message_family_parsed", "bounded_intake_normalized", "event_normalized"),
+            confidence=intake.confidence,
+            downstream_outputs=(intake.id,),
+        )
+        return Event(
+            event_type=event_type,
+            source=f"jinx-integrator:{intake.message_family}",
+            description=intake.summary,
+            confidence=intake.confidence,
+            provenance=provenance,
+            data_mode=intake.data_mode,
+            location=Location(label=location_label) if location_label else None,
+            metadata={
+                "input_source": "jinx-integrator",
+                "integrator_message_id": intake.id,
+                "message_family": intake.message_family,
+                "message_type": intake.message_type,
+                "originator": intake.originator,
+                "recipient": intake.recipient,
+                "transport": intake.transport,
+                "network_scope": intake.network_scope,
+                "filter_profile": intake.filter_profile,
+                "mission_impact_tags": ",".join(intake.tags),
+            },
+            simulation_flag=intake.simulation_flag,
         )
 
     def _persist_network_plan(
@@ -3780,14 +3956,131 @@ class JINXApplicationService:
                     "network_plan_id": event.metadata.get("network_plan_id"),
                     "network_issue_id": event.metadata.get("network_issue_id"),
                     "mission_impact_tags": event.metadata.get("mission_impact_tags", ""),
-                    "timestamp": event.timestamp.isoformat(),
+                "timestamp": event.timestamp.isoformat(),
+            },
+        )
+
+    def _persist_integrator_message(
+        self,
+        parse_result: IntegratorParseResult,
+        routes: tuple[RouteResult, ...],
+        event: Event,
+    ) -> None:
+        if self.database is None:
+            return
+        intake = parse_result.intake
+        parse_run_id = f"integrator-parse-{intake.id}"
+        self.database.save_document(
+            "integrator_messages",
+            intake.id,
+            {
+                "id": intake.id,
+                "message_family": intake.message_family,
+                "message_type": intake.message_type,
+                "originator": intake.originator,
+                "recipient": intake.recipient,
+                "summary": intake.summary,
+                "raw_text": intake.raw_text,
+                "transport": intake.transport,
+                "precedence": intake.precedence,
+                "network_scope": intake.network_scope,
+                "filter_profile": intake.filter_profile,
+                "route_targets": list(intake.route_targets),
+                "restrictions": list(intake.restrictions),
+                "tags": list(intake.tags),
+                "confidence": intake.confidence.value,
+                "data_mode": intake.data_mode.value,
+                "simulation_flag": intake.simulation_flag,
+                "validation_notes": list(parse_result.validation_notes),
+                "filter_actions": list(parse_result.filter_actions),
+                "extracted_fields": dict(parse_result.extracted_fields),
+                "authority_state": "observed_external_message_only",
+                "parse_run_id": parse_run_id,
+                "event_id": event.id,
+                "timestamp": intake.timestamp.isoformat(),
+            },
+        )
+        self.database.save_document(
+            "integrator_parser_runs",
+            parse_run_id,
+            {
+                "id": parse_run_id,
+                "message_id": intake.id,
+                "message_family": intake.message_family,
+                "normalized_payload": dict(parse_result.normalized_payload),
+                "normalized_keys": sorted(str(key) for key in parse_result.normalized_payload.keys()),
+                "validation_notes": list(parse_result.validation_notes),
+                "filter_actions": list(parse_result.filter_actions),
+                "route_targets": list(intake.route_targets),
+                "timestamp": intake.timestamp.isoformat(),
+            },
+        )
+        for route in routes:
+            route_id = f"integrator-route-{intake.id}-{route.message.destination.replace('jinx-', '')}"
+            self.database.save_document(
+                "integrator_routes",
+                route_id,
+                {
+                    "id": route_id,
+                    "message_id": intake.id,
+                    "destination": route.message.destination,
+                    "topic": route.message.topic,
+                    "status": route.status,
+                    "delivered": route.delivered,
+                    "policy_reason": route.decision.reason,
+                    "redacted_fields": list(route.redacted_fields),
+                    "payload_schema": route.message.payload_schema,
+                    "simulation_flag": route.message.simulation_flag,
+                    "license_scope": route.message.license_scope,
+                    "timestamp": route.message.timestamp.isoformat(),
                 },
             )
-            self._append_timeline(
-                "network_issue",
-                event.description,
-                {"event_id": event.id, "network_plan_id": plan.id},
-            )
+        self.database.save_document(
+            "events",
+            event.id,
+            {
+                "id": event.id,
+                "event_type": event.event_type.value,
+                "source": event.source,
+                "description": event.description,
+                "location": event.location.label if event.location else None,
+                "confidence": event.confidence.value,
+                "integrator_message_id": intake.id,
+                "message_family": intake.message_family,
+                "message_type": intake.message_type,
+                "timestamp": event.timestamp.isoformat(),
+            },
+        )
+        self._save_evidence_pack(
+            source_kind="integrator_message",
+            source_id=intake.id,
+            source_module="jinx-integrator",
+            package_scope="integrator",
+            title=f"Integrator intake {intake.message_family}",
+            summary=intake.summary,
+            confidence_value=intake.confidence.value,
+            recommended_review_role="integrator operator",
+            related_ids=(parse_run_id, event.id, *tuple(route.message.destination for route in routes)),
+            provenance_refs=(intake.id,),
+            assumptions=tuple(intake.restrictions),
+            uncertainty=tuple(parse_result.validation_notes),
+            allowed_actions=(
+                "Review bounded message intake output.",
+                "Route only through licensed internal JINX modules.",
+                "Use simulation replay before reusing message-derived assumptions.",
+            ),
+            disallowed_actions=(
+                "Do not forward this intake to a live external network path.",
+                "Do not convert this intake into autonomous command or tasking.",
+            ),
+            tags=("integrator", intake.message_family, "message_intake"),
+            simulation_flag=intake.simulation_flag,
+        )
+        self._append_timeline(
+            "integrator_message",
+            f"Integrator normalized {intake.message_family} intake for bounded internal review.",
+            {"message_id": intake.id, "parse_run_id": parse_run_id},
+        )
 
     @staticmethod
     def layer_config_document() -> dict[str, object]:

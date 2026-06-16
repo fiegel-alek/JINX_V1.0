@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>JINX-Integrator Intake Desk</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <aside class="nav-rail" aria-label="JINX-Integrator">
+        <div class="brand">
+          <span class="brand-mark">JG</span>
+          <div>
+            <strong>JINX-Integrator</strong>
+            <small>Intake Desk</small>
+          </div>
+        </div>
+        <nav>
+          <a href="#intake">Intake</a>
+          <a href="#routing">Routing</a>
+          <a href="#brain">BRAIN</a>
+        </nav>
+        <div class="rail-note">
+          <span id="api-status" class="status-dot"></span>
+          <span id="api-status-text">Checking API</span>
+        </div>
+      </aside>
+
+      <section class="main">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">Integrator package</p>
+            <h1>Message Intake Desk</h1>
+          </div>
+          <div class="top-actions">
+            <label class="role-picker">
+              Active role
+              <select id="role-select">
+                <option value="integrator_operator" selected>Integrator operator</option>
+                <option value="auditor">Auditor</option>
+                <option value="system_administrator">System administrator</option>
+              </select>
+            </label>
+            <label class="session-picker">
+              Session user
+              <input id="username-input" value="integrator-alpha" />
+            </label>
+            <button id="session-button" type="button">Connect Session</button>
+            <button id="clear-session-button" type="button">Clear Session</button>
+            <button id="refresh-button" type="button">Refresh</button>
+          </div>
+        </header>
+
+        <section class="panel session-panel">
+          <div class="section-head">
+            <h2>Package Session</h2>
+            <span id="session-mode">Header role mode</span>
+          </div>
+          <div id="session-summary" class="list empty">No active session. Local synthetic package mode is ready.</div>
+        </section>
+
+        <section class="metrics" aria-label="Integrator metrics">
+          <article class="metric">
+            <span>Families</span>
+            <strong id="metric-families">0</strong>
+          </article>
+          <article class="metric">
+            <span>Messages</span>
+            <strong id="metric-messages">0</strong>
+          </article>
+          <article class="metric">
+            <span>Routes</span>
+            <strong id="metric-routes">0</strong>
+          </article>
+          <article class="metric">
+            <span>Parser Runs</span>
+            <strong id="metric-parser-runs">0</strong>
+          </article>
+        </section>
+
+        <section class="operations" id="intake">
+          <section class="panel">
+            <div class="section-head">
+              <h2>Message Intake Builder</h2>
+              <span>Synthetic or authorized</span>
+            </div>
+            <p class="section-note">This desk normalizes message-family stubs into bounded JINX packets, preserves provenance, and routes them only through licensed internal review paths.</p>
+            <form id="integrator-form" class="form">
+              <div class="form-grid">
+                <label>
+                  <span class="field-label">Message family</span>
+                  <span class="field-help">Choose the intake family stub to normalize</span>
+                  <select name="message_family" id="message-family-select">
+                    <option value="vmf" selected>VMF</option>
+                    <option value="k-series">K-series</option>
+                    <option value="j-series">J-series</option>
+                    <option value="usmtf">USMTF</option>
+                  </select>
+                </label>
+                <label>
+                  <span class="field-label">Data mode</span>
+                  <span class="field-help">Stay synthetic unless content is explicitly authorized</span>
+                  <select name="data_mode">
+                    <option value="synthetic" selected>Synthetic</option>
+                    <option value="authorized">Authorized</option>
+                  </select>
+                </label>
+              </div>
+              <label>
+                <span class="field-label">Message text</span>
+                <span class="field-help">Use one `key: value` line per field such as type, originator, recipient, summary, transport, or location</span>
+                <textarea name="raw_text" id="message-text" required>message_type: vmf spot report
+originator: unit-alpha
+recipient: review-cell
+summary: Synthetic location and status update for bounded internal review.
+transport: fabric-shadow
+precedence: routine
+location: grid-alpha
+tags: status,position</textarea>
+              </label>
+              <button type="submit">Normalize And Route</button>
+            </form>
+          </section>
+
+          <section class="panel">
+            <div class="section-head">
+              <h2>Family Profiles</h2>
+              <span id="family-count">0</span>
+            </div>
+            <p class="section-note">Each family profile defines required fields, internal route targets, and the guardrails used before anything moves through FABRIC.</p>
+            <div id="family-list" class="list empty">No family profiles</div>
+          </section>
+        </section>
+
+        <section class="panel focus-panel">
+          <div class="section-head">
+            <h2>Current Focus</h2>
+            <span id="integrator-focus-kind">Awaiting message intake</span>
+          </div>
+          <p class="section-note">The intake desk keeps the latest meaningful packet here so the operator can see what was normalized, where it was sent, and what still needs review.</p>
+          <div id="integrator-focus-card" class="list focus-card empty">No Integrator focus yet</div>
+        </section>
+
+        <section class="data-grid" id="routing">
+          <section class="panel">
+            <div class="section-head">
+              <h2>Normalized Messages</h2>
+              <span id="message-count">0</span>
+            </div>
+            <div id="message-list" class="list empty">No normalized messages</div>
+          </section>
+          <section class="panel">
+            <div class="section-head">
+              <h2>Route Results</h2>
+              <span id="route-count">0</span>
+            </div>
+            <div id="route-list" class="list empty">No integrator routes</div>
+          </section>
+          <section class="panel">
+            <div class="section-head">
+              <h2>Parser Runs</h2>
+              <span id="parser-run-count">0</span>
+            </div>
+            <div id="parser-run-list" class="list empty">No parser runs</div>
+          </section>
+        </section>
+
+        <section class="data-grid two" id="brain">
+          <section class="panel">
+            <div class="section-head">
+              <h2>JINX-BRAIN Chat</h2>
+              <span id="brain-chat-count">0</span>
+            </div>
+            <form id="brain-chat-form" class="form">
+              <label>
+                <span class="field-label">Question</span>
+                <span class="field-help">Ask for message review guidance, doctrine, or bounded interpretation help</span>
+                <textarea name="text" required>What should the integrator operator review before promoting a normalized message-family packet into a planning assumption?</textarea>
+              </label>
+              <input type="hidden" name="user_id" value="integrator-alpha" />
+              <input type="hidden" name="use_core_reachback" value="true" />
+              <button type="submit">Ask BRAIN</button>
+            </form>
+            <div id="brain-chat-list" class="list empty">No Brain chat yet</div>
+          </section>
+
+          <section class="panel">
+            <div class="section-head">
+              <h2>Integrator Guardrails</h2>
+              <span>Advisory only</span>
+            </div>
+            <div id="guardrail-list" class="list">
+              <article class="item">
+                <strong>No live message translation</strong>
+                <span>JINX-Integrator uses simulation-first parser stubs and governed internal routing rather than live operational gateway behavior.</span>
+              </article>
+              <article class="item">
+                <strong>No command execution</strong>
+                <span>Any message that implies orders, tasking, or targeting is preserved as review-only intake and never becomes autonomous action.</span>
+              </article>
+              <article class="item">
+                <strong>Licensed internal routing only</strong>
+                <span>Messages move only through JINX FABRIC, with package checks, provenance, and boundary controls still in force.</span>
+              </article>
+            </div>
+          </section>
+        </section>
+      </section>
+    </main>
+    <script src="/integrator_app.js"></script>
+  </body>
+</html>

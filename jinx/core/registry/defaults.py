@@ -21,6 +21,7 @@ def default_module_manifests() -> tuple[ModuleManifest, ...]:
                     "doctrine_reference.v1",
                     "intel_impact.v1",
                     "network_issue.v1",
+                    "message_intake.v1",
                 }
             ),
             allowed_outputs=frozenset(
@@ -70,6 +71,7 @@ def default_module_manifests() -> tuple[ModuleManifest, ...]:
                     "intel_impact.v1",
                     "isr_feed.v1",
                     "cop_state.v1",
+                    "message_intake.v1",
                 }
             ),
             allowed_outputs=frozenset(
@@ -84,6 +86,7 @@ def default_module_manifests() -> tuple[ModuleManifest, ...]:
                     "intel_impact.v1",
                     "isr_feed.v1",
                     "cop_state.v1",
+                    "message_intake.v1",
                 }
             ),
             required_permissions=frozenset({"policy:evaluate", "audit:write"}),
@@ -108,12 +111,40 @@ def default_module_manifests() -> tuple[ModuleManifest, ...]:
             supports_simulation=True,
         ),
         ModuleManifest(
+            name="jinx-integrator",
+            version="0.1.0",
+            licensed=True,
+            license_scope="integrator",
+            allowed_inputs=frozenset(),
+            allowed_outputs=frozenset({"message_intake.v1"}),
+            required_permissions=frozenset({"mock_adapter:read", "audit:write"}),
+            capabilities=frozenset(
+                {
+                    "bounded_message_ingest",
+                    "message_family_parser_stub",
+                    "schema_normalization",
+                    "internal_fabric_routing",
+                    "message_filtering",
+                }
+            ),
+            dependencies=frozenset({"jinx-core", "jinx-bus"}),
+            safety_classification=SafetyClassification.ADVISORY_REASONING,
+            supports_simulation=True,
+        ),
+        ModuleManifest(
             name="jinx-c5isr",
             version="0.1.0",
             licensed=True,
             license_scope="c5isr",
             allowed_inputs=frozenset(
-                {"event.v1", "conflict_packet.v1", "recommendation.v1", "operator_report.v1", "human_command.v1"}
+                {
+                    "event.v1",
+                    "conflict_packet.v1",
+                    "recommendation.v1",
+                    "operator_report.v1",
+                    "human_command.v1",
+                    "message_intake.v1",
+                }
             ),
             allowed_outputs=frozenset({"event.v1", "conflict_packet.v1", "cop_advisory.v1", "cop_state.v1"}),
             required_permissions=frozenset({"mock_adapter:read", "audit:write"}),
@@ -159,7 +190,7 @@ def default_module_manifests() -> tuple[ModuleManifest, ...]:
             version="0.1.0",
             licensed=True,
             license_scope="net",
-            allowed_inputs=frozenset({"event.v1"}),
+            allowed_inputs=frozenset({"event.v1", "message_intake.v1"}),
             allowed_outputs=frozenset({"event.v1", "conflict_packet.v1", "network_issue.v1"}),
             required_permissions=frozenset({"mock_adapter:read", "audit:write"}),
             capabilities=frozenset(
@@ -181,7 +212,7 @@ def default_module_manifests() -> tuple[ModuleManifest, ...]:
             version="0.1.0",
             licensed=True,
             license_scope="intel",
-            allowed_inputs=frozenset({"event.v1"}),
+            allowed_inputs=frozenset({"event.v1", "message_intake.v1"}),
             allowed_outputs=frozenset({"event.v1", "conflict_packet.v1", "intel_impact.v1", "isr_feed.v1"}),
             required_permissions=frozenset({"mock_adapter:read", "audit:write"}),
             capabilities=frozenset(

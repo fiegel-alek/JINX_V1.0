@@ -86,6 +86,19 @@ def build_default_access_control() -> AccessControl:
             description="Reviews network-domain issues.",
         ),
         Role(
+            name="integrator_operator",
+            permissions=frozenset(
+                {
+                    "brain:chat",
+                    "brain:query",
+                    "integrator:read",
+                    "integrator:submit",
+                    "advisory:review",
+                }
+            ),
+            description="Works bounded message intake, normalization, and routing review.",
+        ),
+        Role(
             name="intel_analyst",
             permissions=frozenset(
                 {
@@ -104,7 +117,7 @@ def build_default_access_control() -> AccessControl:
         Role(
             name="auditor",
             permissions=frozenset(
-                {"audit:read", "brain:chat", "brain:query", "ops:read", "provenance:read", "sim:read"}
+                {"audit:read", "brain:chat", "brain:query", "integrator:read", "ops:read", "provenance:read", "sim:read"}
             ),
             description="Reviews audit and provenance trails.",
         ),

@@ -17,6 +17,7 @@ class DefaultRegistryTests(TestCase):
                 "jinx-operator-mini",
                 "jinx-net",
                 "jinx-intel",
+                "jinx-integrator",
                 "jinx-sim",
             },
         )
@@ -24,7 +25,7 @@ class DefaultRegistryTests(TestCase):
     def test_default_registry_registers_all_modules(self) -> None:
         registry = build_default_registry()
 
-        self.assertEqual(len(registry.licensed_modules()), 8)
+        self.assertEqual(len(registry.licensed_modules()), 9)
         self.assertEqual(registry.get("jinx-sim").license_scope, "simulation")
 
     def test_default_registry_reflects_core_and_brain_roles(self) -> None:
@@ -35,3 +36,4 @@ class DefaultRegistryTests(TestCase):
         self.assertIn("jinx-brain", registry.get("jinx-core").dependencies)
         self.assertIn("tactical_radio_integration_stub", registry.get("jinx-bus").capabilities)
         self.assertIn("operator_report_submit", registry.get("jinx-operator-mini").capabilities)
+        self.assertIn("bounded_message_ingest", registry.get("jinx-integrator").capabilities)

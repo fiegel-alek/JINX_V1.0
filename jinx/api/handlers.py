@@ -7,6 +7,7 @@ from jinx.core.schemas import Location, MissionContext, MissionTask
 from jinx.common.types.confidence import ConfidenceScore
 from jinx.core.provenance import ProvenanceRecord
 from jinx.modules.intel import IntelligenceSummary, ISRFeedSnapshot
+from jinx.modules.integrator import SyntheticMessageFamilyParser
 from jinx.modules.net import LOSLink, NetworkNode, NetworkPlan, SyntheticNetworkPlanParser, TimeslotAllocation
 from datetime import UTC, datetime
 
@@ -120,6 +121,29 @@ class JINXAPIHandlers:
             "issue_ids": [issue.id for issue in result.issues],
             "issues": len(result.issues),
             "delivered_to_core": all(route.delivered for route in result.issue_routes),
+            "conflicts": len(result.core_analysis.conflicts) if result.core_analysis else 0,
+            "recommendations": len(result.core_analysis.recommendations) if result.core_analysis else 0,
+        }
+
+    def submit_integrator_message(self, payload: dict[str, str]) -> dict[str, object]:
+        data_mode = DataMode(payload.get("data_mode", DataMode.SYNTHETIC.value))
+        parse_result = SyntheticMessageFamilyParser().parse(
+            message_family=payload.get("message_family", "vmf"),
+            text=payload["raw_text"],
+            confidence=self._synthetic_confidence(),
+            provenance=self._synthetic_provenance("jinx-api.integrator"),
+            data_mode=data_mode,
+        )
+        result = self.service.submit_integrator_message(parse_result)
+        return {
+            "message_id": parse_result.intake.id,
+            "parse_run_id": f"integrator-parse-{parse_result.intake.id}",
+            "route_count": len(result.routes),
+            "delivered_routes": sum(1 for route in result.routes if route.delivered),
+            "statuses": [route.status for route in result.routes],
+            "validation_notes": list(parse_result.validation_notes),
+            "filter_profile": parse_result.intake.filter_profile,
+            "route_targets": list(parse_result.intake.route_targets),
             "conflicts": len(result.core_analysis.conflicts) if result.core_analysis else 0,
             "recommendations": len(result.core_analysis.recommendations) if result.core_analysis else 0,
         }

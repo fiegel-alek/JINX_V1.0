@@ -52,17 +52,18 @@ ROLE_PERMISSIONS = {
             "sim:run",
         }
     ),
+    "integrator_operator": frozenset({"advisory:review", "brain:chat", "brain:query", "integrator:read", "integrator:submit"}),
     "intel_analyst": frozenset({"brain:chat", "brain:query", "cop:read", "intel:submit", "isr:read", "isr:write", "ops:read"}),
     "simulation_operator": frozenset({"brain:chat", "brain:query", "sim:read", "sim:inject", "sim:run"}),
-    "auditor": frozenset({"audit:read", "brain:chat", "brain:query", "cop:read", "isr:read", "ops:read", "sim:read"}),
+    "auditor": frozenset({"audit:read", "brain:chat", "brain:query", "cop:read", "integrator:read", "isr:read", "ops:read", "sim:read"}),
     "system_administrator": frozenset({"admin:all"}),
 }
 
 PACKAGE_PROFILES = {
     "full": {
         "label": "Full JINX Package",
-        "modules": ("core", "brain", "c5isr", "net", "intel", "sim", "bus"),
-        "apps": ("/apps/ops", "/apps/c5isr", "/apps/net", "/apps/intel", "/apps/sim", "/apps/operator"),
+        "modules": ("core", "brain", "c5isr", "net", "intel", "integrator", "sim", "bus"),
+        "apps": ("/apps/ops", "/apps/c5isr", "/apps/net", "/apps/intel", "/apps/integrator", "/apps/sim", "/apps/operator"),
     },
     "c5isr": {
         "label": "JINX-C5ISR Package",
@@ -78,6 +79,11 @@ PACKAGE_PROFILES = {
         "label": "JINX-INTEL Package",
         "modules": ("core", "brain", "intel", "sim", "bus"),
         "apps": ("/apps/intel",),
+    },
+    "integrator": {
+        "label": "JINX-Integrator Package",
+        "modules": ("core", "brain", "integrator", "sim", "bus"),
+        "apps": ("/apps/integrator",),
     },
     "sim": {
         "label": "JINX-SIM Package",
@@ -96,6 +102,7 @@ PACKAGE_PERMISSION_PREFIXES = {
     "c5isr": ("net:", "intel:", "isr:", "ops:"),
     "net": ("operator_report:", "cop:", "mission:", "intel:", "isr:", "human_command:", "ops:"),
     "intel": ("operator_report:", "cop:", "mission:", "net:", "human_command:", "ops:"),
+    "integrator": ("operator_report:", "cop:", "mission:", "intel:", "isr:", "net:", "human_command:", "ops:", "audit:", "sim:"),
     "sim": ("operator_report:", "cop:", "mission:", "intel:", "isr:", "net:", "human_command:", "ops:"),
     "operator": ("cop:", "mission:", "intel:", "isr:", "net:", "ops:", "audit:", "human_command:", "operator_report:review", "sim:"),
 }
@@ -395,6 +402,22 @@ class JINXRequestHandler(SimpleHTTPRequestHandler):
                 self._require_permission("net:read")
                 self._send_json(self.server.api_handlers.service.network_advisories_document())
                 return
+            if parsed.path == "/api/integrator/families":
+                self._require_permission("integrator:read")
+                self._send_json(self.server.api_handlers.service.integrator_profiles_document())
+                return
+            if parsed.path == "/api/integrator/messages":
+                self._require_permission("integrator:read")
+                self._send_json(self.server.api_handlers.service.integrator_messages_document())
+                return
+            if parsed.path == "/api/integrator/parser-runs":
+                self._require_permission("integrator:read")
+                self._send_json(self.server.api_handlers.service.integrator_parser_runs_document())
+                return
+            if parsed.path == "/api/integrator/routes":
+                self._require_permission("integrator:read")
+                self._send_json(self.server.api_handlers.service.integrator_routes_document())
+                return
             if parsed.path == "/api/sim/dashboard":
                 self._require_permission("sim:read")
                 self._send_json(self.server.api_handlers.service.simulation_dashboard_document())
@@ -421,6 +444,7 @@ class JINXRequestHandler(SimpleHTTPRequestHandler):
                             {"name": "JINX-C5ISR", "status": "online", "role": "COP and operator intake"},
                             {"name": "JINX-NET", "status": "stubbed", "role": "Synthetic MTDL validation"},
                             {"name": "JINX-INTEL", "status": "online", "role": "Synthetic/authorized fusion"},
+                            {"name": "JINX-Integrator", "status": "online", "role": "Bounded message-family intake"},
                             {"name": "JINX-SIM", "status": "online", "role": "Synthetic scenario replay"},
                             {"name": "JINX-BUS", "status": "online", "role": "Policy-enforced routing"},
                         ]
@@ -527,6 +551,10 @@ class JINXRequestHandler(SimpleHTTPRequestHandler):
             if parsed.path == "/api/net/plans":
                 self._require_permission("net:submit")
                 self._send_json(self.server.api_handlers.submit_network_plan(payload), status=201)
+                return
+            if parsed.path == "/api/integrator/messages":
+                self._require_permission("integrator:submit")
+                self._send_json(self.server.api_handlers.submit_integrator_message(payload), status=201)
                 return
             if parsed.path == "/api/brain/query":
                 self._require_permission("brain:query")
@@ -701,6 +729,8 @@ class JINXRequestHandler(SimpleHTTPRequestHandler):
             "/net": "/net.html",
             "/apps/intel": "/intel.html",
             "/intel": "/intel.html",
+            "/apps/integrator": "/integrator.html",
+            "/integrator": "/integrator.html",
             "/apps/sim": "/sim.html",
             "/sim": "/sim.html",
             "/apps/operator": "/operator.html",
