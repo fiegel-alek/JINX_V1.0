@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>JINX-Integrator Intake Desk</title>
-    <link rel="stylesheet" href="/styles.css" />
+    <link rel="stylesheet" href="/styles.css?v=integrator-watchfloor-1" />
   </head>
   <body>
     <main class="app-shell">
@@ -13,10 +13,11 @@
           <span class="brand-mark">JG</span>
           <div>
             <strong>JINX-Integrator</strong>
-            <small>Intake Desk</small>
+            <small>Watchfloor</small>
           </div>
         </div>
         <nav>
+          <a href="#watchfloor">Watchfloor</a>
           <a href="#intake">Intake</a>
           <a href="#routing">Routing</a>
           <a href="#brain">BRAIN</a>
@@ -31,7 +32,7 @@
         <header class="topbar">
           <div>
             <p class="eyebrow">Integrator package</p>
-            <h1>Message Intake Desk</h1>
+            <h1>Message Watchfloor</h1>
           </div>
           <div class="top-actions">
             <label class="role-picker">
@@ -77,6 +78,116 @@
             <span>Parser Runs</span>
             <strong id="metric-parser-runs">0</strong>
           </article>
+        </section>
+
+        <section class="panel" id="watchfloor">
+          <div class="section-head">
+            <h2>Traffic Watchfloor</h2>
+            <span id="traffic-posture">Awaiting bounded traffic</span>
+          </div>
+          <p class="section-note">Keep intake, normalization, and internal route posture in one place so the operator can work the traffic without losing provenance or review state.</p>
+          <div id="traffic-chip-row" class="watch-chip-row">
+            <article class="watch-chip">
+              <span>Delivered</span>
+              <strong id="metric-delivered">0</strong>
+            </article>
+            <article class="watch-chip">
+              <span>Redacted</span>
+              <strong id="metric-redacted">0</strong>
+            </article>
+            <article class="watch-chip">
+              <span>Denied</span>
+              <strong id="metric-denied">0</strong>
+            </article>
+            <article class="watch-chip">
+              <span>Review</span>
+              <strong id="metric-review">0</strong>
+            </article>
+          </div>
+        </section>
+
+        <section class="watchfloor-grid">
+          <section class="panel">
+            <div class="section-head">
+              <h2>Traffic Queue</h2>
+              <span id="queue-count">0</span>
+            </div>
+            <div class="watch-toolbar">
+              <div class="filter-chip-row" id="family-filter-row" aria-label="Family filters">
+                <button type="button" class="filter-chip is-selected" data-family-filter="all">All Families</button>
+                <button type="button" class="filter-chip" data-family-filter="vmf">VMF</button>
+                <button type="button" class="filter-chip" data-family-filter="k-series">K-Series</button>
+                <button type="button" class="filter-chip" data-family-filter="j-series">J-Series</button>
+                <button type="button" class="filter-chip" data-family-filter="usmtf">USMTF</button>
+              </div>
+              <div class="filter-chip-row" id="status-filter-row" aria-label="Status filters">
+                <button type="button" class="filter-chip is-selected" data-status-filter="all">All Status</button>
+                <button type="button" class="filter-chip" data-status-filter="delivered">Delivered</button>
+                <button type="button" class="filter-chip" data-status-filter="redacted">Redacted</button>
+                <button type="button" class="filter-chip" data-status-filter="denied">Denied</button>
+              </div>
+            </div>
+            <div id="queue-list" class="queue-list empty">No normalized messages</div>
+          </section>
+
+          <section class="panel">
+            <div class="section-head">
+              <h2>Packet Inspector</h2>
+              <span id="inspector-status">Awaiting selection</span>
+            </div>
+            <p class="section-note">Inspect the selected packet from raw text through bounded normalization, validation, and route results.</p>
+            <div id="inspector-summary" class="list empty">Select a message from the queue to inspect its normalized packet.</div>
+            <div class="inspector-grid">
+              <section class="detail-panel full-span">
+                <div class="section-head compact">
+                  <h2>Route Path</h2>
+                  <span id="inspector-route-count">0</span>
+                </div>
+                <div id="inspector-route-list" class="list empty">No route path loaded</div>
+              </section>
+
+              <section class="detail-panel">
+                <div class="section-head compact">
+                  <h2>Raw Message</h2>
+                  <span id="inspector-authority">Review only</span>
+                </div>
+                <pre id="inspector-raw" class="code-block empty">Select a message from the queue.</pre>
+              </section>
+
+              <section class="detail-panel">
+                <div class="section-head compact">
+                  <h2>Normalized Packet</h2>
+                  <span id="inspector-normalized-count">0 keys</span>
+                </div>
+                <pre id="inspector-normalized" class="code-block empty">No normalized packet yet.</pre>
+              </section>
+
+              <section class="detail-panel">
+                <div class="section-head compact">
+                  <h2>Extracted Fields</h2>
+                  <span id="inspector-field-count">0</span>
+                </div>
+                <div id="inspector-fields" class="list empty">No extracted fields yet</div>
+              </section>
+
+              <section class="detail-panel">
+                <div class="section-head compact">
+                  <h2>Review Notes</h2>
+                  <span id="inspector-note-count">0</span>
+                </div>
+                <div id="inspector-notes" class="list empty">No validation or filter notes yet</div>
+              </section>
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="section-head">
+              <h2>Transport Lanes</h2>
+              <span id="lane-count">0</span>
+            </div>
+            <p class="section-note">Each lane shows bounded delivery posture by internal destination so the operator can see where traffic is flowing and where review stopped it.</p>
+            <div id="lane-board" class="lane-board empty">No route lanes yet</div>
+          </section>
         </section>
 
         <section class="operations" id="intake">
@@ -142,17 +253,10 @@ tags: status,position</textarea>
           <div id="integrator-focus-card" class="list focus-card empty">No Integrator focus yet</div>
         </section>
 
-        <section class="data-grid" id="routing">
+        <section class="data-grid two" id="routing">
           <section class="panel">
             <div class="section-head">
-              <h2>Normalized Messages</h2>
-              <span id="message-count">0</span>
-            </div>
-            <div id="message-list" class="list empty">No normalized messages</div>
-          </section>
-          <section class="panel">
-            <div class="section-head">
-              <h2>Route Results</h2>
+              <h2>Route History</h2>
               <span id="route-count">0</span>
             </div>
             <div id="route-list" class="list empty">No integrator routes</div>
@@ -208,6 +312,6 @@ tags: status,position</textarea>
         </section>
       </section>
     </main>
-    <script src="/integrator_app.js"></script>
+    <script src="/integrator_app.js?v=integrator-watchfloor-1"></script>
   </body>
 </html>

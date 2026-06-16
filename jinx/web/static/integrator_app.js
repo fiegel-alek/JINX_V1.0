@@ -7,13 +7,33 @@ const integrator = {
   clearSessionButton: document.querySelector("#clear-session-button"),
   sessionSummary: document.querySelector("#session-summary"),
   sessionMode: document.querySelector("#session-mode"),
+  trafficPosture: document.querySelector("#traffic-posture"),
+  trafficDelivered: document.querySelector("#metric-delivered"),
+  trafficRedacted: document.querySelector("#metric-redacted"),
+  trafficDenied: document.querySelector("#metric-denied"),
+  trafficReview: document.querySelector("#metric-review"),
   familyList: document.querySelector("#family-list"),
-  messageList: document.querySelector("#message-list"),
+  queueList: document.querySelector("#queue-list"),
+  familyFilterRow: document.querySelector("#family-filter-row"),
+  statusFilterRow: document.querySelector("#status-filter-row"),
+  laneBoard: document.querySelector("#lane-board"),
   routeList: document.querySelector("#route-list"),
   parserRunList: document.querySelector("#parser-run-list"),
   brainChatList: document.querySelector("#brain-chat-list"),
   focusKind: document.querySelector("#integrator-focus-kind"),
   focusCard: document.querySelector("#integrator-focus-card"),
+  inspectorStatus: document.querySelector("#inspector-status"),
+  inspectorSummary: document.querySelector("#inspector-summary"),
+  inspectorRouteCount: document.querySelector("#inspector-route-count"),
+  inspectorRouteList: document.querySelector("#inspector-route-list"),
+  inspectorAuthority: document.querySelector("#inspector-authority"),
+  inspectorRaw: document.querySelector("#inspector-raw"),
+  inspectorNormalizedCount: document.querySelector("#inspector-normalized-count"),
+  inspectorNormalized: document.querySelector("#inspector-normalized"),
+  inspectorFieldCount: document.querySelector("#inspector-field-count"),
+  inspectorFields: document.querySelector("#inspector-fields"),
+  inspectorNoteCount: document.querySelector("#inspector-note-count"),
+  inspectorNotes: document.querySelector("#inspector-notes"),
   intakeForm: document.querySelector("#integrator-form"),
   messageFamilySelect: document.querySelector("#message-family-select"),
   messageText: document.querySelector("#message-text"),
@@ -45,6 +65,7 @@ summary: Synthetic network timing and link status note for bounded communication
 transport: fabric-shadow
 precedence: priority
 location: relay-grid
+timeslot: epoch-2
 tags: communications,timing`,
   "j-series": `message_type: j-series track update
 originator: unit-bravo
@@ -53,6 +74,7 @@ summary: Synthetic track and communications status update for bounded internal r
 transport: fabric-shadow
 precedence: routine
 location: grid-bravo
+track_number: track-204
 tags: communications,track`,
   usmtf: `message_type: usmtf summary
 originator: command-post-alpha
@@ -61,7 +83,19 @@ summary: Synthetic formatted message summary preserved for human review and audi
 transport: fabric-shadow
 precedence: routine
 location: route-alpha
+serial: usmtf-echo-5
 tags: planning,review`,
+};
+
+const state = {
+  families: [],
+  messages: [],
+  routes: [],
+  runs: [],
+  brainMessages: [],
+  selectedMessageId: "",
+  familyFilter: "all",
+  statusFilter: "all",
 };
 
 function activeRole() {
@@ -123,15 +157,21 @@ function escapeHTML(value) {
   })[char]);
 }
 
+function displayValue(value) {
+  if (Array.isArray(value)) return value.join(", ");
+  if (value && typeof value === "object") return JSON.stringify(value);
+  return String(value ?? "");
+}
+
 function pairGrid(pairs) {
-  const rows = pairs.filter(([, value]) => value !== undefined && value !== null && String(value) !== "");
+  const rows = pairs.filter(([, value]) => value !== undefined && value !== null && displayValue(value) !== "");
   if (!rows.length) return "";
   return `
     <div class="data-pair-grid">
       ${rows.map(([label, value]) => `
         <div class="data-pair">
           <span class="data-pair-label">${escapeHTML(label)}</span>
-          <span class="data-pair-value">${escapeHTML(value)}</span>
+          <span class="data-pair-value">${escapeHTML(displayValue(value))}</span>
         </div>
       `).join("")}
     </div>
@@ -140,11 +180,17 @@ function pairGrid(pairs) {
 
 function renderList(container, records, emptyText, renderer) {
   if (!records || records.length === 0) {
-    container.className = "list empty";
+    container.className = `${container.className.includes("queue-list") ? "queue-list" : container.className.includes("lane-board") ? "lane-board" : "list"} empty`;
     container.textContent = emptyText;
     return;
   }
-  container.className = "list";
+  if (container === integrator.queueList) {
+    container.className = "queue-list";
+  } else if (container === integrator.laneBoard) {
+    container.className = "lane-board";
+  } else {
+    container.className = "list";
+  }
   container.innerHTML = records.map(renderer).join("");
 }
 
@@ -152,6 +198,85 @@ function setStatus(ok, text) {
   integrator.apiStatus.classList.toggle("ok", ok);
   integrator.apiStatus.classList.toggle("error", !ok);
   integrator.apiStatusText.textContent = text;
+}
+
+function formatTimestamp(value) {
+  if (!value) return "Unknown";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return String(value);
+  return parsed.toLocaleString([], {
+    month: "short",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function routeClassFromStatus(status) {
+  if (status === "denied") return "conflict";
+  if (status === "redacted") return "recommendation";
+  return "advisory";
+}
+
+function routeBadge(status) {
+  return `<span class="status-badge ${escapeHTML(status)}">${escapeHTML(status)}</span>`;
+}
+
+function byTimestampDesc(records) {
+  return [...records].sort((left, right) => {
+    const leftTime = Date.parse(left.timestamp || "") || 0;
+    const rightTime = Date.parse(right.timestamp || "") || 0;
+    return rightTime - leftTime;
+  });
+}
+
+function routesForMessage(messageId) {
+  return byTimestampDesc(state.routes.filter((route) => route.message_id === messageId));
+}
+
+function runForMessage(messageId) {
+  return byTimestampDesc(state.runs.filter((run) => run.message_id === messageId))[0] || null;
+}
+
+function messageStatus(messageId) {
+  const routes = routesForMessage(messageId);
+  if (routes.some((route) => route.status === "denied")) return "denied";
+  if (routes.some((route) => route.status === "redacted")) return "redacted";
+  if (routes.some((route) => route.status === "delivered")) return "delivered";
+  return "unrouted";
+}
+
+function latestMessageForRoute(route) {
+  return state.messages.find((message) => message.id === route.message_id) || null;
+}
+
+function filteredMessages() {
+  return byTimestampDesc(state.messages).filter((message) => {
+    if (state.familyFilter !== "all" && message.message_family !== state.familyFilter) return false;
+    if (state.statusFilter !== "all" && messageStatus(message.id) !== state.statusFilter) return false;
+    return true;
+  });
+}
+
+function ensureSelection(messages) {
+  if (!messages.length) {
+    state.selectedMessageId = "";
+    return null;
+  }
+  const selected = messages.find((message) => message.id === state.selectedMessageId);
+  if (selected) return selected;
+  state.selectedMessageId = messages[0].id;
+  return messages[0];
+}
+
+function activeMessage() {
+  return state.messages.find((message) => message.id === state.selectedMessageId) || null;
+}
+
+function updateFilterButtons(row, attribute, activeValue) {
+  row.querySelectorAll(`[${attribute}]`).forEach((button) => {
+    button.classList.toggle("is-selected", button.getAttribute(attribute) === activeValue);
+  });
 }
 
 function renderSession(sessionDoc, entitlements) {
@@ -206,53 +331,225 @@ function renderFamilies(families) {
         <strong>Guardrail</strong>
         <span>${escapeHTML((family.restrictions || [])[0] || "Synthetic or explicitly authorized intake only.")}</span>
       </div>
+      <div class="inline-actions">
+        <button type="button" class="filter-chip" data-load-family="${escapeHTML(family.family)}">Load Template</button>
+      </div>
     </article>
   `);
 }
 
+function renderTrafficSummary(messages, routes) {
+  const delivered = routes.filter((route) => route.status === "delivered").length;
+  const redacted = routes.filter((route) => route.status === "redacted").length;
+  const denied = routes.filter((route) => route.status === "denied").length;
+  integrator.trafficDelivered.textContent = String(delivered);
+  integrator.trafficRedacted.textContent = String(redacted);
+  integrator.trafficDenied.textContent = String(denied);
+  integrator.trafficReview.textContent = String(messages.length);
+  if (!messages.length) {
+    integrator.trafficPosture.textContent = "Awaiting bounded traffic";
+    return;
+  }
+  const priority = denied ? "denials present" : redacted ? "redactions present" : "all routes delivered";
+  integrator.trafficPosture.textContent = `${messages.length} packets in review · ${priority}`;
+}
+
 function renderMessages(messages) {
   document.querySelector("#metric-messages").textContent = messages.length;
-  document.querySelector("#message-count").textContent = messages.length;
-  renderList(integrator.messageList, messages.slice(-8).reverse(), "No normalized messages", (message) => `
-    <article class="item advisory">
+  document.querySelector("#queue-count").textContent = messages.length;
+  renderList(integrator.queueList, messages, "No normalized messages", (message) => {
+    const status = messageStatus(message.id);
+    const selectedClass = state.selectedMessageId === message.id ? " is-selected" : "";
+    const routes = routesForMessage(message.id);
+    const lastRoute = routes[0] || null;
+    return `
+      <button type="button" class="queue-item${selectedClass}" data-message-id="${escapeHTML(message.id)}">
+        <div class="queue-head">
+          <strong>${escapeHTML(message.message_family)} · ${escapeHTML(message.message_type)}</strong>
+          ${routeBadge(status)}
+        </div>
+        <span class="item-caption">${escapeHTML(formatTimestamp(message.timestamp))} · ${escapeHTML(message.originator)} to ${escapeHTML(message.recipient)}</span>
+        <span class="queue-summary">${escapeHTML(message.summary)}</span>
+        ${pairGrid([
+          ["Transport", message.transport],
+          ["Targets", (message.route_targets || []).join(", ") || "none"],
+          ["Last lane", lastRoute ? lastRoute.destination.replace("jinx-", "") : "pending"],
+        ])}
+      </button>
+    `;
+  });
+}
+
+function renderInspector(message) {
+  if (!message) {
+    integrator.inspectorStatus.textContent = "Awaiting selection";
+    integrator.inspectorSummary.className = "list empty";
+    integrator.inspectorSummary.textContent = "Select a message from the queue to inspect its normalized packet.";
+    integrator.inspectorRouteCount.textContent = "0";
+    integrator.inspectorRouteList.className = "list empty";
+    integrator.inspectorRouteList.textContent = "No route path loaded";
+    integrator.inspectorAuthority.textContent = "Review only";
+    integrator.inspectorRaw.className = "code-block empty";
+    integrator.inspectorRaw.textContent = "Select a message from the queue.";
+    integrator.inspectorNormalizedCount.textContent = "0 keys";
+    integrator.inspectorNormalized.className = "code-block empty";
+    integrator.inspectorNormalized.textContent = "No normalized packet yet.";
+    integrator.inspectorFieldCount.textContent = "0";
+    integrator.inspectorFields.className = "list empty";
+    integrator.inspectorFields.textContent = "No extracted fields yet";
+    integrator.inspectorNoteCount.textContent = "0";
+    integrator.inspectorNotes.className = "list empty";
+    integrator.inspectorNotes.textContent = "No validation or filter notes yet";
+    return;
+  }
+
+  const routes = routesForMessage(message.id);
+  const run = runForMessage(message.id);
+  const status = messageStatus(message.id);
+  const extractedEntries = Object.entries(message.extracted_fields || {});
+  const normalizedPayload = run?.normalized_payload || {
+    id: message.id,
+    family: message.message_family,
+    type: message.message_type,
+    summary: message.summary,
+    route_targets: message.route_targets || [],
+  };
+  const noteRecords = [
+    ...(message.validation_notes || []).map((note) => ({ kind: "Validation", text: note })),
+    ...((run?.filter_actions || []).map((note) => ({ kind: "Filter Action", text: note }))),
+  ];
+
+  integrator.inspectorStatus.textContent = status;
+  integrator.inspectorSummary.className = "list";
+  integrator.inspectorSummary.innerHTML = `
+    <article class="item ${routeClassFromStatus(status)}">
       <strong>${escapeHTML(message.message_family)} · ${escapeHTML(message.message_type)}</strong>
-      <span class="item-caption">Bounded message-family intake record</span>
+      <span class="item-caption">Bounded packet selected from the traffic queue</span>
       <span>${escapeHTML(message.summary)}</span>
       ${pairGrid([
         ["Originator", message.originator],
         ["Recipient", message.recipient],
-        ["Transport", message.transport],
-        ["Targets", (message.route_targets || []).join(", ") || "none"],
+        ["Precedence", message.precedence],
+        ["Network scope", message.network_scope],
+        ["Filter profile", message.filter_profile],
+        ["Confidence", message.confidence],
+      ])}
+    </article>
+  `;
+
+  integrator.inspectorRouteCount.textContent = String(routes.length);
+  renderList(integrator.inspectorRouteList, routes, "No route path loaded", (route) => `
+    <article class="item ${routeClassFromStatus(route.status)}">
+      <strong>${escapeHTML(route.destination)}</strong>
+      <span class="item-caption">${escapeHTML(route.topic)} · ${escapeHTML(formatTimestamp(route.timestamp))}</span>
+      <span>${escapeHTML(route.policy_reason || "No policy reason captured.")}</span>
+      ${pairGrid([
+        ["Status", route.status],
+        ["Schema", route.payload_schema],
+        ["Redactions", (route.redacted_fields || []).join(", ") || "none"],
       ])}
     </article>
   `);
+
+  integrator.inspectorAuthority.textContent = message.authority_state || "Review only";
+  integrator.inspectorRaw.className = "code-block";
+  integrator.inspectorRaw.textContent = message.raw_text || "No raw text preserved.";
+  integrator.inspectorNormalizedCount.textContent = `${Object.keys(normalizedPayload).length} keys`;
+  integrator.inspectorNormalized.className = "code-block";
+  integrator.inspectorNormalized.textContent = JSON.stringify(normalizedPayload, null, 2);
+
+  integrator.inspectorFieldCount.textContent = String(extractedEntries.length);
+  if (extractedEntries.length) {
+    integrator.inspectorFields.className = "list";
+    integrator.inspectorFields.innerHTML = `
+      <article class="item">
+        <strong>Extracted Fields</strong>
+        <span class="item-caption">Additional packet fields preserved for human review</span>
+        ${pairGrid(extractedEntries)}
+      </article>
+    `;
+  } else {
+    integrator.inspectorFields.className = "list empty";
+    integrator.inspectorFields.textContent = "No extracted fields yet";
+  }
+
+  integrator.inspectorNoteCount.textContent = String(noteRecords.length);
+  renderList(integrator.inspectorNotes, noteRecords, "No validation or filter notes yet", (note) => `
+    <article class="item">
+      <strong>${escapeHTML(note.kind)}</strong>
+      <span>${escapeHTML(note.text)}</span>
+    </article>
+  `);
+}
+
+function renderLanes(routes) {
+  const lanes = Array.from(
+    routes.reduce((accumulator, route) => {
+      const current = accumulator.get(route.destination) || [];
+      current.push(route);
+      accumulator.set(route.destination, current);
+      return accumulator;
+    }, new Map()),
+  ).sort(([left], [right]) => left.localeCompare(right));
+
+  document.querySelector("#lane-count").textContent = String(lanes.length);
+  renderList(integrator.laneBoard, lanes, "No route lanes yet", ([destination, laneRoutes]) => {
+    const delivered = laneRoutes.filter((route) => route.status === "delivered").length;
+    const redacted = laneRoutes.filter((route) => route.status === "redacted").length;
+    const denied = laneRoutes.filter((route) => route.status === "denied").length;
+    const highlights = laneRoutes.slice(0, 4).map((route) => {
+      const message = latestMessageForRoute(route);
+      return `${message ? `${message.message_family} ${message.message_type}` : route.message_id} · ${route.status}`;
+    });
+    return `
+      <article class="lane-card ${denied ? "conflict" : redacted ? "recommendation" : "advisory"}">
+        <div class="queue-head">
+          <strong>${escapeHTML(destination)}</strong>
+          ${routeBadge(denied ? "denied" : redacted ? "redacted" : "delivered")}
+        </div>
+        ${pairGrid([
+          ["Delivered", delivered],
+          ["Redacted", redacted],
+          ["Denied", denied],
+          ["Total routes", laneRoutes.length],
+        ])}
+        <ul class="lane-list">
+          ${highlights.map((item) => `<li>${escapeHTML(item)}</li>`).join("")}
+        </ul>
+      </article>
+    `;
+  });
 }
 
 function renderRoutes(routes) {
   document.querySelector("#metric-routes").textContent = routes.length;
   document.querySelector("#route-count").textContent = routes.length;
-  renderList(integrator.routeList, routes.slice(-12).reverse(), "No integrator routes", (route) => `
-    <article class="item ${route.status === "denied" ? "conflict" : "recommendation"}">
-      <strong>${escapeHTML(route.destination)} · ${escapeHTML(route.status)}</strong>
-      <span class="item-caption">Internal FABRIC route created by the Integrator</span>
-      <span>${escapeHTML(route.policy_reason)}</span>
-      ${pairGrid([
-        ["Schema", route.payload_schema],
-        ["Topic", route.topic],
-        ["Redactions", (route.redacted_fields || []).join(", ") || "none"],
-      ])}
-    </article>
-  `);
+  renderList(integrator.routeList, byTimestampDesc(routes).slice(0, 12), "No integrator routes", (route) => {
+    const message = latestMessageForRoute(route);
+    return `
+      <article class="item ${routeClassFromStatus(route.status)}" data-message-id="${escapeHTML(route.message_id)}">
+        <strong>${escapeHTML(route.destination)} · ${escapeHTML(route.status)}</strong>
+        <span class="item-caption">${escapeHTML(formatTimestamp(route.timestamp))} · ${escapeHTML(message ? message.message_family : "unknown family")}</span>
+        <span>${escapeHTML(route.policy_reason)}</span>
+        ${pairGrid([
+          ["Topic", route.topic],
+          ["Schema", route.payload_schema],
+          ["Redactions", (route.redacted_fields || []).join(", ") || "none"],
+        ])}
+      </article>
+    `;
+  });
 }
 
 function renderParserRuns(runs) {
   document.querySelector("#metric-parser-runs").textContent = runs.length;
   document.querySelector("#parser-run-count").textContent = runs.length;
-  renderList(integrator.parserRunList, runs.slice(-8).reverse(), "No parser runs", (run) => `
+  renderList(integrator.parserRunList, byTimestampDesc(runs).slice(0, 8), "No parser runs", (run) => `
     <article class="item">
       <strong>${escapeHTML(run.message_family)} · ${escapeHTML(run.id)}</strong>
-      <span class="item-caption">Parser and normalization audit for this intake record</span>
+      <span class="item-caption">${escapeHTML(formatTimestamp(run.timestamp))} · normalization ledger</span>
       ${pairGrid([
+        ["Message ID", run.message_id],
         ["Targets", (run.route_targets || []).join(", ") || "none"],
         ["Keys", (run.normalized_keys || []).join(", ") || "none"],
       ])}
@@ -281,21 +578,22 @@ function renderBrain(messages) {
 }
 
 function renderFocus(messages, routes, runs) {
-  const message = messages.length ? messages[messages.length - 1] : null;
-  const route = routes.length ? routes[routes.length - 1] : null;
-  const run = runs.length ? runs[runs.length - 1] : null;
+  const message = activeMessage() || messages[0] || null;
+  const route = message ? routesForMessage(message.id)[0] : routes[0] || null;
+  const run = message ? runForMessage(message.id) : runs[0] || null;
   if (!message) {
     integrator.focusKind.textContent = "Awaiting message intake";
     integrator.focusCard.className = "list focus-card empty";
     integrator.focusCard.textContent = "No Integrator focus yet";
     return;
   }
-  integrator.focusKind.textContent = route ? route.status : "message normalized";
+  const status = route ? route.status : "message normalized";
+  integrator.focusKind.textContent = status;
   integrator.focusCard.className = "list focus-card";
   integrator.focusCard.innerHTML = `
-    <article class="item ${route && route.status === "denied" ? "conflict" : "recommendation"}">
+    <article class="item ${routeClassFromStatus(status)}">
       <strong>${escapeHTML(message.message_family)} · ${escapeHTML(message.message_type)}</strong>
-      <span class="item-caption">Latest normalized intake packet</span>
+      <span class="item-caption">Selected watchfloor packet</span>
       <span>${escapeHTML(message.summary)}</span>
       ${pairGrid([
         ["Targets", (message.route_targets || []).join(", ") || "none"],
@@ -307,7 +605,7 @@ function renderFocus(messages, routes, runs) {
         <strong>Next review step</strong>
         <span>${escapeHTML(
           route
-            ? `Confirm ${route.destination} is the right licensed destination and review policy result ${route.status}.`
+            ? `Confirm ${route.destination} is the right licensed destination and review the policy result ${route.status}.`
             : run && run.validation_notes && run.validation_notes.length
               ? run.validation_notes[0]
               : "Review the normalized packet before using it in any downstream assumption."
@@ -325,6 +623,22 @@ function syncTemplate(force = false) {
   }
 }
 
+function renderAll() {
+  renderFamilies(state.families);
+  renderTrafficSummary(state.messages, state.routes);
+  const queueMessages = filteredMessages();
+  const selected = ensureSelection(queueMessages);
+  updateFilterButtons(integrator.familyFilterRow, "data-family-filter", state.familyFilter);
+  updateFilterButtons(integrator.statusFilterRow, "data-status-filter", state.statusFilter);
+  renderMessages(queueMessages);
+  renderInspector(selected);
+  renderLanes(byTimestampDesc(state.routes));
+  renderRoutes(state.routes);
+  renderParserRuns(state.runs);
+  renderBrain(state.brainMessages);
+  renderFocus(queueMessages, state.routes, state.runs);
+}
+
 async function refresh() {
   try {
     const [health, entitlements, sessionDoc, familiesDoc, messagesDoc, routesDoc, parserRunsDoc, brainDoc] = await Promise.all([
@@ -337,20 +651,17 @@ async function refresh() {
       getJSON("/api/integrator/parser-runs"),
       getJSON("/api/brain/chat-messages"),
     ]);
-    const families = familiesDoc.message_families || [];
-    const messages = messagesDoc.integrator_messages || [];
-    const routes = routesDoc.integrator_routes || [];
-    const runs = parserRunsDoc.integrator_parser_runs || [];
+    state.families = familiesDoc.message_families || [];
+    state.messages = messagesDoc.integrator_messages || [];
+    state.routes = routesDoc.integrator_routes || [];
+    state.runs = parserRunsDoc.integrator_parser_runs || [];
+    state.brainMessages = brainDoc.messages || [];
     renderSession(sessionDoc, entitlements);
-    renderFamilies(families);
-    renderMessages(messages);
-    renderRoutes(routes);
-    renderParserRuns(runs);
-    renderBrain(brainDoc.messages || []);
-    renderFocus(messages, routes, runs);
+    renderAll();
     setStatus(true, `${health.service} API online`);
   } catch (error) {
     setStatus(false, error.message || "API offline");
+    renderInspector(null);
     renderFocus([], [], []);
   }
 }
@@ -376,7 +687,8 @@ async function clearSession() {
 
 integrator.intakeForm.addEventListener("submit", async (event) => {
   event.preventDefault();
-  await postJSON("/api/integrator/messages", Object.fromEntries(new FormData(integrator.intakeForm).entries()));
+  const response = await postJSON("/api/integrator/messages", Object.fromEntries(new FormData(integrator.intakeForm).entries()));
+  state.selectedMessageId = response.message_id || "";
   await refresh();
 });
 
@@ -410,6 +722,44 @@ integrator.roleSelect.addEventListener("change", async () => {
 });
 integrator.messageFamilySelect.addEventListener("change", () => {
   syncTemplate(true);
+});
+
+integrator.familyFilterRow.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-family-filter]");
+  if (!button) return;
+  state.familyFilter = button.getAttribute("data-family-filter") || "all";
+  renderAll();
+});
+
+integrator.statusFilterRow.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-status-filter]");
+  if (!button) return;
+  state.statusFilter = button.getAttribute("data-status-filter") || "all";
+  renderAll();
+});
+
+integrator.queueList.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-message-id]");
+  if (!button) return;
+  state.selectedMessageId = button.getAttribute("data-message-id") || "";
+  renderAll();
+});
+
+integrator.routeList.addEventListener("click", (event) => {
+  const card = event.target.closest("[data-message-id]");
+  if (!card) return;
+  state.selectedMessageId = card.getAttribute("data-message-id") || "";
+  renderAll();
+});
+
+integrator.familyList.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-load-family]");
+  if (!button) return;
+  const family = button.getAttribute("data-load-family");
+  if (!family || !integrator.messageFamilySelect.querySelector(`option[value="${family}"]`)) return;
+  integrator.messageFamilySelect.value = family;
+  syncTemplate(true);
+  integrator.messageText.focus();
 });
 
 syncSuggestedUsername(true);
