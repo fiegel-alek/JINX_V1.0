@@ -418,6 +418,14 @@ class JINXRequestHandler(SimpleHTTPRequestHandler):
                 self._require_permission("integrator:read")
                 self._send_json(self.server.api_handlers.service.integrator_routes_document())
                 return
+            if parsed.path == "/api/integrator/network-designs":
+                self._require_permission("integrator:read")
+                self._send_json(self.server.api_handlers.service.integrator_network_designs_document())
+                return
+            if parsed.path == "/api/integrator/architecture-designs":
+                self._require_permission("integrator:read")
+                self._send_json(self.server.api_handlers.service.integrator_architecture_designs_document())
+                return
             if parsed.path == "/api/sim/dashboard":
                 self._require_permission("sim:read")
                 self._send_json(self.server.api_handlers.service.simulation_dashboard_document())
@@ -555,6 +563,14 @@ class JINXRequestHandler(SimpleHTTPRequestHandler):
             if parsed.path == "/api/integrator/messages":
                 self._require_permission("integrator:submit")
                 self._send_json(self.server.api_handlers.submit_integrator_message(payload), status=201)
+                return
+            if parsed.path == "/api/integrator/network-designs":
+                self._require_permission("integrator:submit")
+                self._send_json(self.server.api_handlers.submit_integrator_network_design(payload), status=201)
+                return
+            if parsed.path == "/api/integrator/architecture-designs":
+                self._require_permission("integrator:submit")
+                self._send_json(self.server.api_handlers.submit_integrator_architecture_design(payload), status=201)
                 return
             if parsed.path == "/api/brain/query":
                 self._require_permission("brain:query")

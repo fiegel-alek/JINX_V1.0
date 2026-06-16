@@ -35,7 +35,12 @@ from jinx.core.schemas import (
     Recommendation,
 )
 from jinx.modules.c5isr import C5ISRIntakeResult, C5ISRReportIntake, COPManager, MissionImpactAnalyzer
-from jinx.modules.integrator import IntegratorParseResult, SyntheticMessageFamilyParser
+from jinx.modules.integrator import (
+    IntegratorParseResult,
+    IntegratorTopologyDesign,
+    IntegratorTopologyDesigner,
+    SyntheticMessageFamilyParser,
+)
 from jinx.modules.intel import IntelligenceFusionEngine, IntelligenceFusionResult, IntelligenceSummary, ISRFeedSnapshot
 from jinx.modules.net import NetworkIssue, NetworkPlan, NetworkValidationRun, NetworkValidator
 from jinx.modules.sim import C5ISRScenarioPack, default_c5isr_scenario_packs
@@ -94,6 +99,7 @@ class JINXApplicationService:
         self.brain_learner = ConservativeLearner()
         self.intel_fusion = IntelligenceFusionEngine()
         self.network_validator = NetworkValidator()
+        self.integrator_topologies = IntegratorTopologyDesigner()
         self.mission_impact_analyzer = MissionImpactAnalyzer()
         self.mission_context: MissionContext | None = None
         self._events: list[Event] = []
@@ -1307,6 +1313,20 @@ class JINXApplicationService:
 
     def integrator_profiles_document(self) -> dict[str, object]:
         return SyntheticMessageFamilyParser.profiles_document()
+
+    def integrator_network_designs_document(self) -> dict[str, object]:
+        return {
+            "integrator_network_designs": self.database.list_documents("integrator_network_designs")
+            if self.database
+            else []
+        }
+
+    def integrator_architecture_designs_document(self) -> dict[str, object]:
+        return {
+            "integrator_architecture_designs": self.database.list_documents("integrator_architecture_designs")
+            if self.database
+            else []
+        }
 
     def intelligence_summaries_document(self) -> dict[str, object]:
         return {
@@ -3831,6 +3851,67 @@ class JINXApplicationService:
             simulation_flag=intake.simulation_flag,
         )
 
+    def save_integrator_network_design(
+        self,
+        plan: NetworkPlan,
+        validation_run: NetworkValidationRun,
+        issues: tuple[NetworkIssue, ...],
+    ) -> dict[str, object]:
+        design = self.integrator_topologies.build_optasklink_network(plan, validation_run, issues)
+        document = {
+            "id": f"integrator-network-design-{plan.id}",
+            "design_kind": design.design_kind,
+            "name": design.name,
+            "summary": design.summary,
+            "plan_id": plan.id,
+            "validation_run_id": validation_run.id,
+            "issue_ids": [issue.id for issue in issues],
+            "source_format": plan.source_format,
+            "nodes": [self._serialize_integrator_topology_node(node) for node in design.nodes],
+            "links": [self._serialize_integrator_topology_link(link) for link in design.links],
+            "timeslots": [
+                {
+                    "slot_id": allocation.slot_id,
+                    "node_id": allocation.node_id,
+                    "epoch": allocation.epoch,
+                    "purpose": allocation.purpose,
+                }
+                for allocation in plan.timeslots
+            ],
+            "los_links": [
+                {
+                    "from_node": link.from_node,
+                    "to_node": link.to_node,
+                    "status": link.status,
+                    "rationale": link.rationale,
+                }
+                for link in plan.los_links
+            ],
+            "confidence": plan.confidence.value,
+            "data_mode": plan.data_mode.value,
+            "simulation_flag": plan.simulation_flag,
+            "timestamp": plan.timestamp.isoformat(),
+        }
+        if self.database is not None:
+            self.database.save_document("integrator_network_designs", document["id"], document)
+        return document
+
+    def save_integrator_architecture_design(self, design: IntegratorTopologyDesign) -> dict[str, object]:
+        document = {
+            "id": design.id,
+            "design_kind": design.design_kind,
+            "name": design.name,
+            "summary": design.summary,
+            "source_reference": design.source_reference,
+            "nodes": [self._serialize_integrator_topology_node(node) for node in design.nodes],
+            "links": [self._serialize_integrator_topology_link(link) for link in design.links],
+            "simulation_flag": design.simulation_flag,
+            "timestamp": design.timestamp.isoformat(),
+        }
+        if self.database is not None:
+            self.database.save_document("integrator_architecture_designs", design.id, document)
+        return document
+
     def _persist_network_plan(
         self,
         plan: NetworkPlan,
@@ -4081,6 +4162,31 @@ class JINXApplicationService:
             f"Integrator normalized {intake.message_family} intake for bounded internal review.",
             {"message_id": intake.id, "parse_run_id": parse_run_id},
         )
+
+    @staticmethod
+    def _serialize_integrator_topology_node(node: Any) -> dict[str, object]:
+        return {
+            "id": node.id,
+            "label": node.label,
+            "node_type": node.node_type,
+            "domain": node.domain,
+            "x": node.x,
+            "y": node.y,
+            "status": node.status,
+            "detail": node.detail,
+        }
+
+    @staticmethod
+    def _serialize_integrator_topology_link(link: Any) -> dict[str, object]:
+        return {
+            "id": link.id,
+            "source": link.source,
+            "target": link.target,
+            "link_type": link.link_type,
+            "status": link.status,
+            "summary": link.summary,
+            "payloads": list(link.payloads),
+        }
 
     @staticmethod
     def layer_config_document() -> dict[str, object]:

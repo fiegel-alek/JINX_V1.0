@@ -169,6 +169,42 @@ class WebDatabaseFrontendTests(TestCase):
             self.assertTrue(any(message["payload_schema"] == "message_intake.v1" for message in fabric["messages"]))
             self.assertEqual(database.list_documents("integrator_messages")[0]["message_family"], "j-series")
 
+    def test_api_handler_builds_integrator_network_and_architecture_designs(self) -> None:
+        with TemporaryDirectory() as tmp:
+            database = SQLiteJINXDatabase(Path(tmp) / "jinx.sqlite3")
+            handlers = JINXAPIHandlers(JINXApplicationService(database=database))
+
+            network_design = handlers.submit_integrator_network_design(
+                {
+                    "plan_text": (
+                        "name: Integrator Relay Plan\n"
+                        "node: node-alpha, Node Alpha, terminal\n"
+                        "node: node-bravo, Node Bravo, gateway\n"
+                        "slot: slot-01, node-alpha, epoch-alpha\n"
+                        "slot: slot-02, node-bravo, epoch-alpha\n"
+                        "los: node-alpha, node-bravo, degraded, Synthetic relay review required.\n"
+                    ),
+                    "source_format": "integrator_optasklink_stub",
+                }
+            )
+            architecture_design = handlers.submit_integrator_architecture_design(
+                {
+                    "name": "JINX Package Architecture",
+                    "summary": "Shows bounded package connections and Operator Mini attachment.",
+                    "modules": "jinx-c5isr,jinx-net,jinx-intel,jinx-sim",
+                    "include_operator_mini": "true",
+                }
+            )
+
+            self.assertEqual(network_design["nodes"], 2)
+            self.assertEqual(network_design["links"], 1)
+            self.assertEqual(database.count("network_plans"), 1)
+            self.assertEqual(database.count("integrator_network_designs"), 1)
+            self.assertEqual(database.list_documents("integrator_network_designs")[0]["design_kind"], "optasklink_network")
+            self.assertEqual(database.count("integrator_architecture_designs"), 1)
+            self.assertEqual(architecture_design["design_kind"], "jinx_architecture")
+            self.assertGreaterEqual(architecture_design["links"], 4)
+
     def test_sprint5_operator_loop_and_scenario_runner(self) -> None:
         with TemporaryDirectory() as tmp:
             database = SQLiteJINXDatabase(Path(tmp) / "jinx.sqlite3")
@@ -673,6 +709,8 @@ class WebDatabaseFrontendTests(TestCase):
         self.assertIn(".watchfloor-grid", (static_root / "styles.css").read_text(encoding="utf-8"))
         self.assertIn(".queue-item", (static_root / "styles.css").read_text(encoding="utf-8"))
         self.assertIn(".lane-board", (static_root / "styles.css").read_text(encoding="utf-8"))
+        self.assertIn(".topology-canvas", (static_root / "styles.css").read_text(encoding="utf-8"))
+        self.assertIn(".topology-node", (static_root / "styles.css").read_text(encoding="utf-8"))
         self.assertIn("JINX-INTEL Fusion Desk", (static_root / "intel.html").read_text(encoding="utf-8"))
         self.assertIn("/api/intel/summaries", (static_root / "intel_app.js").read_text(encoding="utf-8"))
         self.assertIn("/api/intel/correlations", (static_root / "intel_app.js").read_text(encoding="utf-8"))
@@ -682,9 +720,14 @@ class WebDatabaseFrontendTests(TestCase):
         self.assertIn("Traffic Queue", (static_root / "integrator.html").read_text(encoding="utf-8"))
         self.assertIn("Packet Inspector", (static_root / "integrator.html").read_text(encoding="utf-8"))
         self.assertIn("Transport Lanes", (static_root / "integrator.html").read_text(encoding="utf-8"))
+        self.assertIn("OPTASKLINK Parser / Network Designer", (static_root / "integrator.html").read_text(encoding="utf-8"))
+        self.assertIn("JINX Architecture Designer", (static_root / "integrator.html").read_text(encoding="utf-8"))
+        self.assertIn("Integration Node Map", (static_root / "integrator.html").read_text(encoding="utf-8"))
         self.assertIn("/api/integrator/messages", (static_root / "integrator_app.js").read_text(encoding="utf-8"))
         self.assertIn("/api/integrator/routes", (static_root / "integrator_app.js").read_text(encoding="utf-8"))
         self.assertIn("/api/integrator/parser-runs", (static_root / "integrator_app.js").read_text(encoding="utf-8"))
+        self.assertIn("/api/integrator/network-designs", (static_root / "integrator_app.js").read_text(encoding="utf-8"))
+        self.assertIn("/api/integrator/architecture-designs", (static_root / "integrator_app.js").read_text(encoding="utf-8"))
         self.assertIn("JINX-Operator Mini", (static_root / "operator.html").read_text(encoding="utf-8"))
         self.assertIn("/api/operator/workspace", (static_root / "operator_app.js").read_text(encoding="utf-8"))
         self.assertIn("/api/operator/report", (static_root / "operator_app.js").read_text(encoding="utf-8"))
@@ -714,6 +757,7 @@ class WebDatabaseFrontendTests(TestCase):
         self.assertIn("state.selectedMessageId", (static_root / "integrator_app.js").read_text(encoding="utf-8"))
         self.assertIn("renderInspector", (static_root / "integrator_app.js").read_text(encoding="utf-8"))
         self.assertIn("renderLanes", (static_root / "integrator_app.js").read_text(encoding="utf-8"))
+        self.assertIn("renderTopologyMap", (static_root / "integrator_app.js").read_text(encoding="utf-8"))
         self.assertIn("renderOperationalFocus", (static_root / "c5isr_app.js").read_text(encoding="utf-8"))
         self.assertIn("renderNetFocus", (static_root / "net_app.js").read_text(encoding="utf-8"))
         self.assertIn("renderIntelFocus", (static_root / "intel_app.js").read_text(encoding="utf-8"))
@@ -788,6 +832,8 @@ class WebDatabaseFrontendTests(TestCase):
         self.assertIn("/api/integrator/families", integrator_js)
         self.assertIn("/api/integrator/messages", integrator_js)
         self.assertIn("/api/integrator/routes", integrator_js)
+        self.assertIn("/api/integrator/network-designs", integrator_js)
+        self.assertIn("/api/integrator/architecture-designs", integrator_js)
         self.assertIn("/api/auth/login", integrator_js)
         self.assertNotIn("/api/cop", integrator_js)
         self.assertNotIn("/api/net", integrator_js)

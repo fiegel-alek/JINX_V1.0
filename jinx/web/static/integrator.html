@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>JINX-Integrator Intake Desk</title>
-    <link rel="stylesheet" href="/styles.css?v=integrator-watchfloor-1" />
+    <link rel="stylesheet" href="/styles.css?v=integrator-watchfloor-2" />
   </head>
   <body>
     <main class="app-shell">
@@ -19,6 +19,7 @@
         <nav>
           <a href="#watchfloor">Watchfloor</a>
           <a href="#intake">Intake</a>
+          <a href="#design">Design</a>
           <a href="#routing">Routing</a>
           <a href="#brain">BRAIN</a>
         </nav>
@@ -253,6 +254,118 @@ tags: status,position</textarea>
           <div id="integrator-focus-card" class="list focus-card empty">No Integrator focus yet</div>
         </section>
 
+        <section class="operations" id="design">
+          <section class="panel">
+            <div class="section-head">
+              <h2>OPTASKLINK Parser / Network Designer</h2>
+              <span>Synthetic</span>
+            </div>
+            <p class="section-note">Parse synthetic OPTASKLINK-style text into a bounded network design, validate timeslots and LOS, then project the node map back into the Integrator desk.</p>
+            <form id="optasklink-form" class="form">
+              <label>
+                <span class="field-label">Synthetic OPTASKLINK text</span>
+                <span class="field-help">Use one line per node, slot, or LOS entry. This remains a simulation-first planning aid and never becomes live network control.</span>
+                <textarea name="plan_text" id="optasklink-text" required>name: Integrator Relay Plan
+node: node-alpha, Node Alpha, terminal
+node: node-bravo, Node Bravo, gateway
+node: node-charlie, Node Charlie, relay
+slot: slot-01, node-alpha, epoch-alpha
+slot: slot-02, node-bravo, epoch-alpha
+slot: slot-03, node-charlie, epoch-bravo
+los: node-alpha, node-bravo, degraded, Synthetic terrain and relay spacing require review.
+los: node-bravo, node-charlie, clear, Synthetic relay path currently feasible.</textarea>
+              </label>
+              <input type="hidden" name="source_format" value="integrator_optasklink_stub" />
+              <button type="submit">Parse OPTASKLINK And Design</button>
+            </form>
+          </section>
+
+          <section class="panel">
+            <div class="section-head">
+              <h2>JINX Architecture Designer</h2>
+              <span>Package topology</span>
+            </div>
+            <p class="section-note">Lay out bounded JINX connections between Core, Brain, Bus, Integrator, licensed modules, and Operator Mini so the integration picture stays legible.</p>
+            <form id="architecture-form" class="form">
+              <div class="form-grid">
+                <label>
+                  <span class="field-label">Design name</span>
+                  <span class="field-help">Short name for this package architecture view</span>
+                  <input name="name" value="JINX Package Architecture" required />
+                </label>
+                <label>
+                  <span class="field-label">Include Operator Mini</span>
+                  <span class="field-help">Show the field-edge client in the architecture map</span>
+                  <select name="include_operator_mini">
+                    <option value="true" selected>Include</option>
+                    <option value="false">Exclude</option>
+                  </select>
+                </label>
+              </div>
+              <label>
+                <span class="field-label">Architecture summary</span>
+                <span class="field-help">What the design is supposed to emphasize for the integrator operator</span>
+                <textarea name="summary" required>Simulation-first package architecture showing bounded JINX internal connections, Operator Mini intake, and review-only data movement through FABRIC.</textarea>
+              </label>
+              <fieldset class="topology-fieldset">
+                <legend class="field-label">Included modules</legend>
+                <span class="field-help">Core, Brain, Bus, and Integrator always remain in the map. Use these toggles for the attached package surfaces.</span>
+                <div class="topology-toggle-grid">
+                  <label class="topology-toggle">
+                    <input type="checkbox" name="module" value="jinx-c5isr" checked />
+                    <span>JINX-C5ISR</span>
+                  </label>
+                  <label class="topology-toggle">
+                    <input type="checkbox" name="module" value="jinx-net" checked />
+                    <span>JINX-NET</span>
+                  </label>
+                  <label class="topology-toggle">
+                    <input type="checkbox" name="module" value="jinx-intel" checked />
+                    <span>JINX-INTEL</span>
+                  </label>
+                  <label class="topology-toggle">
+                    <input type="checkbox" name="module" value="jinx-sim" checked />
+                    <span>JINX-SIM</span>
+                  </label>
+                </div>
+              </fieldset>
+              <button type="submit">Build Architecture Map</button>
+            </form>
+          </section>
+        </section>
+
+        <section class="watchfloor-grid topology-grid">
+          <section class="panel">
+            <div class="section-head">
+              <h2>Integration Node Map</h2>
+              <span id="topology-kind">Awaiting design</span>
+            </div>
+            <p class="section-note">Switch between synthetic network design and JINX package architecture so the operator can compare traffic, timing, and system layout in one desk.</p>
+            <div class="filter-chip-row" id="topology-mode-row" aria-label="Topology modes">
+              <button type="button" class="filter-chip is-selected" data-topology-mode="network">Network Design</button>
+              <button type="button" class="filter-chip" data-topology-mode="architecture">JINX Architecture</button>
+            </div>
+            <div id="topology-canvas" class="topology-canvas empty">No topology selected</div>
+            <div id="topology-summary" class="list empty">No topology summary yet</div>
+          </section>
+
+          <section class="panel">
+            <div class="section-head">
+              <h2>Network Designs</h2>
+              <span id="network-design-count">0</span>
+            </div>
+            <div id="network-design-list" class="list empty">No OPTASKLINK-derived network designs</div>
+          </section>
+
+          <section class="panel">
+            <div class="section-head">
+              <h2>Architecture Designs</h2>
+              <span id="architecture-design-count">0</span>
+            </div>
+            <div id="architecture-design-list" class="list empty">No JINX architecture designs</div>
+          </section>
+        </section>
+
         <section class="data-grid two" id="routing">
           <section class="panel">
             <div class="section-head">
@@ -312,6 +425,6 @@ tags: status,position</textarea>
         </section>
       </section>
     </main>
-    <script src="/integrator_app.js?v=integrator-watchfloor-1"></script>
+    <script src="/integrator_app.js?v=integrator-watchfloor-2"></script>
   </body>
 </html>

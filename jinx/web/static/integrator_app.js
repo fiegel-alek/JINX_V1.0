@@ -37,6 +37,14 @@ const integrator = {
   intakeForm: document.querySelector("#integrator-form"),
   messageFamilySelect: document.querySelector("#message-family-select"),
   messageText: document.querySelector("#message-text"),
+  optasklinkForm: document.querySelector("#optasklink-form"),
+  architectureForm: document.querySelector("#architecture-form"),
+  topologyModeRow: document.querySelector("#topology-mode-row"),
+  topologyKind: document.querySelector("#topology-kind"),
+  topologyCanvas: document.querySelector("#topology-canvas"),
+  topologySummary: document.querySelector("#topology-summary"),
+  networkDesignList: document.querySelector("#network-design-list"),
+  architectureDesignList: document.querySelector("#architecture-design-list"),
   brainChatForm: document.querySelector("#brain-chat-form"),
   refreshButton: document.querySelector("#refresh-button"),
 };
@@ -93,9 +101,13 @@ const state = {
   routes: [],
   runs: [],
   brainMessages: [],
+  networkDesigns: [],
+  architectureDesigns: [],
   selectedMessageId: "",
   familyFilter: "all",
   statusFilter: "all",
+  topologyMode: "network",
+  selectedTopologyId: "",
 };
 
 function activeRole() {
@@ -180,7 +192,8 @@ function pairGrid(pairs) {
 
 function renderList(container, records, emptyText, renderer) {
   if (!records || records.length === 0) {
-    container.className = `${container.className.includes("queue-list") ? "queue-list" : container.className.includes("lane-board") ? "lane-board" : "list"} empty`;
+    const className = container === integrator.queueList ? "queue-list" : container === integrator.laneBoard ? "lane-board" : "list";
+    container.className = `${className} empty`;
     container.textContent = emptyText;
     return;
   }
@@ -213,8 +226,8 @@ function formatTimestamp(value) {
 }
 
 function routeClassFromStatus(status) {
-  if (status === "denied") return "conflict";
-  if (status === "redacted") return "recommendation";
+  if (status === "denied" || status === "blocked") return "conflict";
+  if (status === "redacted" || status === "degraded") return "recommendation";
   return "advisory";
 }
 
@@ -277,6 +290,26 @@ function updateFilterButtons(row, attribute, activeValue) {
   row.querySelectorAll(`[${attribute}]`).forEach((button) => {
     button.classList.toggle("is-selected", button.getAttribute(attribute) === activeValue);
   });
+}
+
+function topologyRecords(mode) {
+  return mode === "architecture" ? byTimestampDesc(state.architectureDesigns) : byTimestampDesc(state.networkDesigns);
+}
+
+function ensureTopologySelection() {
+  let records = topologyRecords(state.topologyMode);
+  if (!records.length) {
+    state.topologyMode = state.architectureDesigns.length ? "architecture" : "network";
+    records = topologyRecords(state.topologyMode);
+  }
+  if (!records.length) {
+    state.selectedTopologyId = "";
+    return null;
+  }
+  const selected = records.find((record) => record.id === state.selectedTopologyId);
+  if (selected) return selected;
+  state.selectedTopologyId = records[0].id;
+  return records[0];
 }
 
 function renderSession(sessionDoc, entitlements) {
@@ -355,7 +388,7 @@ function renderTrafficSummary(messages, routes) {
 }
 
 function renderMessages(messages) {
-  document.querySelector("#metric-messages").textContent = messages.length;
+  document.querySelector("#metric-messages").textContent = state.messages.length;
   document.querySelector("#queue-count").textContent = messages.length;
   renderList(integrator.queueList, messages, "No normalized messages", (message) => {
     const status = messageStatus(message.id);
@@ -615,12 +648,115 @@ function renderFocus(messages, routes, runs) {
   `;
 }
 
+function renderNetworkDesigns(designs) {
+  document.querySelector("#network-design-count").textContent = designs.length;
+  renderList(integrator.networkDesignList, byTimestampDesc(designs).slice(0, 8), "No OPTASKLINK-derived network designs", (design) => `
+    <article class="item net ${state.selectedTopologyId === design.id ? "is-selected-card" : ""}" data-topology-id="${escapeHTML(design.id)}" data-topology-mode="network">
+      <strong>${escapeHTML(design.name)}</strong>
+      <span class="item-caption">${escapeHTML(design.source_format || "integrator_optasklink_stub")} · ${escapeHTML(formatTimestamp(design.timestamp))}</span>
+      <span>${escapeHTML(design.summary)}</span>
+      ${pairGrid([
+        ["Nodes", (design.nodes || []).length],
+        ["Links", (design.links || []).length],
+        ["Timeslots", (design.timeslots || []).length],
+        ["Issues", (design.issue_ids || []).length],
+      ])}
+    </article>
+  `);
+}
+
+function renderArchitectureDesigns(designs) {
+  document.querySelector("#architecture-design-count").textContent = designs.length;
+  renderList(integrator.architectureDesignList, byTimestampDesc(designs).slice(0, 8), "No JINX architecture designs", (design) => `
+    <article class="item ops ${state.selectedTopologyId === design.id ? "is-selected-card" : ""}" data-topology-id="${escapeHTML(design.id)}" data-topology-mode="architecture">
+      <strong>${escapeHTML(design.name)}</strong>
+      <span class="item-caption">${escapeHTML(formatTimestamp(design.timestamp))} · bounded package topology</span>
+      <span>${escapeHTML(design.summary)}</span>
+      ${pairGrid([
+        ["Modules", (design.nodes || []).length],
+        ["Connections", (design.links || []).length],
+        ["Source", design.source_reference || "designer"],
+      ])}
+    </article>
+  `);
+}
+
+function renderTopologyMap() {
+  const design = ensureTopologySelection();
+  updateFilterButtons(integrator.topologyModeRow, "data-topology-mode", state.topologyMode);
+  if (!design) {
+    integrator.topologyKind.textContent = "Awaiting design";
+    integrator.topologyCanvas.className = "topology-canvas empty";
+    integrator.topologyCanvas.textContent = "No topology selected";
+    integrator.topologySummary.className = "list empty";
+    integrator.topologySummary.textContent = "No topology summary yet";
+    return;
+  }
+
+  const nodes = design.nodes || [];
+  const nodeIndex = Object.fromEntries(nodes.map((node) => [node.id, node]));
+  const links = design.links || [];
+  const drawableLinks = links.filter((link) => link.source !== link.target && nodeIndex[link.source] && nodeIndex[link.target]);
+  const selfLinks = links.filter((link) => link.source === link.target);
+
+  integrator.topologyKind.textContent = design.design_kind === "jinx_architecture" ? "JINX architecture" : "network design";
+  integrator.topologyCanvas.className = "topology-canvas";
+  integrator.topologyCanvas.innerHTML = `
+    <div class="topology-stage">
+      <svg class="topology-lines" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+        ${drawableLinks.map((link) => {
+          const source = nodeIndex[link.source];
+          const target = nodeIndex[link.target];
+          return `<line class="topology-line ${escapeHTML(link.status)}" x1="${source.x * 100}" y1="${source.y * 100}" x2="${target.x * 100}" y2="${target.y * 100}"></line>`;
+        }).join("")}
+      </svg>
+      ${nodes.map((node) => `
+        <article class="topology-node ${escapeHTML(node.domain)} ${escapeHTML(node.status)}" style="left:${node.x * 100}%; top:${node.y * 100}%">
+          <strong>${escapeHTML(node.label)}</strong>
+          <span>${escapeHTML(node.node_type)}</span>
+        </article>
+      `).join("")}
+    </div>
+  `;
+
+  integrator.topologySummary.className = "list";
+  integrator.topologySummary.innerHTML = `
+    <article class="item ${design.design_kind === "jinx_architecture" ? "ops" : "net"}">
+      <strong>${escapeHTML(design.name)}</strong>
+      <span class="item-caption">${escapeHTML(formatTimestamp(design.timestamp))} · ${escapeHTML(design.design_kind)}</span>
+      <span>${escapeHTML(design.summary)}</span>
+      ${pairGrid([
+        ["Nodes", nodes.length],
+        ["Drawable links", drawableLinks.length],
+        ["Attached records", links.length],
+        ["Mode", design.design_kind === "jinx_architecture" ? "bounded package topology" : "optasklink network review"],
+      ])}
+      <div class="item-callout">
+        <strong>Map review step</strong>
+        <span>${escapeHTML(
+          design.design_kind === "jinx_architecture"
+            ? "Confirm package boundaries, Operator Mini attachment, and FABRIC reachback lanes before using this architecture in a broader design review."
+            : "Review timeslot and LOS assumptions before treating the node map as a reusable network planning baseline."
+        )}</span>
+      </div>
+      <ul class="lane-list">
+        ${links.slice(0, 6).map((link) => `<li>${escapeHTML(`${link.source} -> ${link.target} · ${link.summary}`)}</li>`).join("")}
+        ${selfLinks.slice(0, 3).map((link) => `<li>${escapeHTML(`${link.source} · ${link.summary}`)}</li>`).join("")}
+      </ul>
+    </article>
+  `;
+}
+
 function syncTemplate(force = false) {
   const family = integrator.messageFamilySelect.value;
   const template = TEMPLATE_BY_FAMILY[family] || TEMPLATE_BY_FAMILY.vmf;
   if (force || !integrator.messageText.value.trim() || Object.values(TEMPLATE_BY_FAMILY).includes(integrator.messageText.value.trim())) {
     integrator.messageText.value = template;
   }
+}
+
+function checkedArchitectureModules() {
+  return [...integrator.architectureForm.querySelectorAll('input[name="module"]:checked')].map((input) => input.value);
 }
 
 function renderAll() {
@@ -637,11 +773,25 @@ function renderAll() {
   renderParserRuns(state.runs);
   renderBrain(state.brainMessages);
   renderFocus(queueMessages, state.routes, state.runs);
+  renderNetworkDesigns(state.networkDesigns);
+  renderArchitectureDesigns(state.architectureDesigns);
+  renderTopologyMap();
 }
 
 async function refresh() {
   try {
-    const [health, entitlements, sessionDoc, familiesDoc, messagesDoc, routesDoc, parserRunsDoc, brainDoc] = await Promise.all([
+    const [
+      health,
+      entitlements,
+      sessionDoc,
+      familiesDoc,
+      messagesDoc,
+      routesDoc,
+      parserRunsDoc,
+      networkDesignsDoc,
+      architectureDesignsDoc,
+      brainDoc,
+    ] = await Promise.all([
       getJSON("/api/health"),
       getJSON("/api/entitlements"),
       getJSON("/api/auth/session"),
@@ -649,12 +799,16 @@ async function refresh() {
       getJSON("/api/integrator/messages"),
       getJSON("/api/integrator/routes"),
       getJSON("/api/integrator/parser-runs"),
+      getJSON("/api/integrator/network-designs"),
+      getJSON("/api/integrator/architecture-designs"),
       getJSON("/api/brain/chat-messages"),
     ]);
     state.families = familiesDoc.message_families || [];
     state.messages = messagesDoc.integrator_messages || [];
     state.routes = routesDoc.integrator_routes || [];
     state.runs = parserRunsDoc.integrator_parser_runs || [];
+    state.networkDesigns = networkDesignsDoc.integrator_network_designs || [];
+    state.architectureDesigns = architectureDesignsDoc.integrator_architecture_designs || [];
     state.brainMessages = brainDoc.messages || [];
     renderSession(sessionDoc, entitlements);
     renderAll();
@@ -663,6 +817,7 @@ async function refresh() {
     setStatus(false, error.message || "API offline");
     renderInspector(null);
     renderFocus([], [], []);
+    renderTopologyMap();
   }
 }
 
@@ -689,6 +844,29 @@ integrator.intakeForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   const response = await postJSON("/api/integrator/messages", Object.fromEntries(new FormData(integrator.intakeForm).entries()));
   state.selectedMessageId = response.message_id || "";
+  await refresh();
+});
+
+integrator.optasklinkForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const response = await postJSON("/api/integrator/network-designs", Object.fromEntries(new FormData(integrator.optasklinkForm).entries()));
+  state.topologyMode = "network";
+  state.selectedTopologyId = response.design_id || "";
+  await refresh();
+});
+
+integrator.architectureForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const formData = new FormData(integrator.architectureForm);
+  const payload = {
+    name: formData.get("name"),
+    summary: formData.get("summary"),
+    include_operator_mini: formData.get("include_operator_mini"),
+    modules: checkedArchitectureModules().join(","),
+  };
+  const response = await postJSON("/api/integrator/architecture-designs", payload);
+  state.topologyMode = "architecture";
+  state.selectedTopologyId = response.design_id || "";
   await refresh();
 });
 
@@ -738,6 +916,14 @@ integrator.statusFilterRow.addEventListener("click", (event) => {
   renderAll();
 });
 
+integrator.topologyModeRow.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-topology-mode]");
+  if (!button) return;
+  state.topologyMode = button.getAttribute("data-topology-mode") || "network";
+  state.selectedTopologyId = "";
+  renderAll();
+});
+
 integrator.queueList.addEventListener("click", (event) => {
   const button = event.target.closest("[data-message-id]");
   if (!button) return;
@@ -761,6 +947,17 @@ integrator.familyList.addEventListener("click", (event) => {
   syncTemplate(true);
   integrator.messageText.focus();
 });
+
+function handleTopologySelection(event) {
+  const card = event.target.closest("[data-topology-id]");
+  if (!card) return;
+  state.selectedTopologyId = card.getAttribute("data-topology-id") || "";
+  state.topologyMode = card.getAttribute("data-topology-mode") || state.topologyMode;
+  renderAll();
+}
+
+integrator.networkDesignList.addEventListener("click", handleTopologySelection);
+integrator.architectureDesignList.addEventListener("click", handleTopologySelection);
 
 syncSuggestedUsername(true);
 syncTemplate(true);

@@ -421,7 +421,8 @@ h2 {
 
 .watch-toolbar,
 .inspector-grid,
-.detail-panel {
+.detail-panel,
+.topology-toggle-grid {
   display: grid;
   gap: 12px;
 }
@@ -439,6 +440,34 @@ h2 {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
+}
+
+.topology-fieldset {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.topology-toggle-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.topology-toggle {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+
+.topology-toggle input {
+  width: auto;
+  margin: 0;
 }
 
 .filter-chip,
@@ -478,6 +507,10 @@ h2 {
 .queue-item.is-selected {
   border-color: var(--cyan);
   box-shadow: 0 0 0 3px rgba(118, 199, 214, 0.16);
+}
+
+.is-selected-card {
+  box-shadow: 0 0 0 3px rgba(118, 199, 214, 0.14);
 }
 
 .queue-head {
@@ -572,6 +605,96 @@ h2 {
   color: var(--text-soft);
   font-size: 13px;
   line-height: 1.45;
+}
+
+.topology-grid {
+  margin-top: 16px;
+}
+
+.topology-canvas {
+  min-height: 420px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background:
+    linear-gradient(var(--line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--line) 1px, transparent 1px),
+    radial-gradient(circle at 50% 50%, #24312a, #151b18 72%);
+  background-size: 40px 40px, 40px 40px, 100% 100%;
+}
+
+.topology-stage {
+  position: relative;
+  min-height: 392px;
+}
+
+.topology-lines {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.topology-line {
+  stroke-width: 1.6;
+  stroke: rgba(242, 246, 239, 0.3);
+}
+
+.topology-line.delivered,
+.topology-line.clear,
+.topology-line.bounded,
+.topology-line.allocated {
+  stroke: rgba(134, 220, 141, 0.82);
+}
+
+.topology-line.redacted,
+.topology-line.degraded {
+  stroke: rgba(118, 199, 214, 0.82);
+}
+
+.topology-line.denied,
+.topology-line.blocked {
+  stroke: rgba(237, 122, 110, 0.82);
+}
+
+.topology-node {
+  position: absolute;
+  min-width: 116px;
+  max-width: 150px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: rgba(20, 26, 23, 0.94);
+  transform: translate(-50%, -50%);
+  display: grid;
+  gap: 4px;
+}
+
+.topology-node strong {
+  display: block;
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.25;
+}
+
+.topology-node span {
+  display: block;
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+}
+
+.topology-node.jinx {
+  border-color: rgba(134, 220, 141, 0.48);
+}
+
+.topology-node.network {
+  border-color: rgba(118, 199, 214, 0.48);
+}
+
+.topology-node.review_required {
+  box-shadow: 0 0 0 3px rgba(237, 122, 110, 0.16);
 }
 
 .layer-grid {
@@ -1119,9 +1242,23 @@ button.queue-item {
     grid-template-columns: 1fr;
   }
 
+  .topology-toggle-grid {
+    grid-template-columns: 1fr;
+  }
+
   .queue-list,
   .lane-board {
     max-height: none;
+  }
+
+  .topology-canvas {
+    min-height: 520px;
+  }
+
+  .topology-node {
+    min-width: 96px;
+    max-width: 120px;
+    padding: 8px 10px;
   }
 
   .operator-actions {

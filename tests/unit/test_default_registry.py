@@ -37,3 +37,4 @@ class DefaultRegistryTests(TestCase):
         self.assertIn("tactical_radio_integration_stub", registry.get("jinx-bus").capabilities)
         self.assertIn("operator_report_submit", registry.get("jinx-operator-mini").capabilities)
         self.assertIn("bounded_message_ingest", registry.get("jinx-integrator").capabilities)
+        self.assertIn("jinx_architecture_design", registry.get("jinx-integrator").capabilities)

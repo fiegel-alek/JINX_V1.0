@@ -122,6 +122,9 @@ def default_module_manifests() -> tuple[ModuleManifest, ...]:
                 {
                     "bounded_message_ingest",
                     "message_family_parser_stub",
+                    "optasklink_parser_stub",
+                    "integration_node_map_design",
+                    "jinx_architecture_design",
                     "schema_normalization",
                     "internal_fabric_routing",
                     "message_filtering",

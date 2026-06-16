@@ -1,4 +1,4 @@
-"""Simulation-first message intake models for JINX-Integrator."""
+"""Simulation-first message intake and topology models for JINX-Integrator."""
 
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -8,6 +8,7 @@ from jinx.common.types import ConfidenceScore, DataMode
 from jinx.core.provenance import ProvenanceRecord
 
 SUPPORTED_MESSAGE_FAMILIES = frozenset({"vmf", "k-series", "j-series", "usmtf"})
+SUPPORTED_TOPOLOGY_KINDS = frozenset({"jinx_architecture", "optasklink_network"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -92,3 +93,79 @@ class IntegratorParseResult:
             raise ValueError("integrator normalized_payload is required")
         if not self.filter_actions:
             raise ValueError("integrator filter_actions are required")
+
+
+@dataclass(frozen=True, slots=True)
+class IntegratorTopologyNode:
+    id: str
+    label: str
+    node_type: str
+    domain: str
+    x: float
+    y: float
+    status: str = "planned"
+    detail: str = ""
+
+    def __post_init__(self) -> None:
+        if not self.id:
+            raise ValueError("integrator topology node id is required")
+        if not self.label:
+            raise ValueError("integrator topology node label is required")
+        if not self.node_type:
+            raise ValueError("integrator topology node type is required")
+        if not self.domain:
+            raise ValueError("integrator topology node domain is required")
+        if not 0 <= self.x <= 1:
+            raise ValueError("integrator topology node x must be between 0 and 1")
+        if not 0 <= self.y <= 1:
+            raise ValueError("integrator topology node y must be between 0 and 1")
+
+
+@dataclass(frozen=True, slots=True)
+class IntegratorTopologyLink:
+    id: str
+    source: str
+    target: str
+    link_type: str
+    status: str
+    summary: str
+    payloads: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        if not self.id:
+            raise ValueError("integrator topology link id is required")
+        if not self.source:
+            raise ValueError("integrator topology link source is required")
+        if not self.target:
+            raise ValueError("integrator topology link target is required")
+        if not self.link_type:
+            raise ValueError("integrator topology link type is required")
+        if not self.status:
+            raise ValueError("integrator topology link status is required")
+        if not self.summary:
+            raise ValueError("integrator topology link summary is required")
+
+
+@dataclass(frozen=True, slots=True)
+class IntegratorTopologyDesign:
+    name: str
+    summary: str
+    design_kind: str
+    nodes: tuple[IntegratorTopologyNode, ...]
+    links: tuple[IntegratorTopologyLink, ...]
+    source_reference: str = ""
+    simulation_flag: bool = True
+    id: str = field(default_factory=lambda: f"integrator-topology-{uuid4()}")
+    timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
+
+    def __post_init__(self) -> None:
+        if not self.name:
+            raise ValueError("integrator topology name is required")
+        if not self.summary:
+            raise ValueError("integrator topology summary is required")
+        if self.design_kind not in SUPPORTED_TOPOLOGY_KINDS:
+            raise ValueError("unsupported integrator topology kind")
+        if not self.nodes:
+            raise ValueError("integrator topology requires nodes")
+        if not self.links:
+            raise ValueError("integrator topology requires links")

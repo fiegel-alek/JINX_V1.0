@@ -148,6 +148,50 @@ class JINXAPIHandlers:
             "recommendations": len(result.core_analysis.recommendations) if result.core_analysis else 0,
         }
 
+    def submit_integrator_network_design(self, payload: dict[str, str]) -> dict[str, object]:
+        if payload.get("plan_text", "").strip():
+            plan = SyntheticNetworkPlanParser().parse(
+                payload["plan_text"],
+                confidence=self._synthetic_confidence(),
+                provenance=self._synthetic_provenance("jinx-api.integrator-optasklink"),
+                source_format=payload.get("source_format", "integrator_optasklink_stub"),
+            )
+        else:
+            plan = self._network_plan_from_payload(payload)
+        result = self.service.submit_network_plan(plan)
+        design = self.service.save_integrator_network_design(plan, result.validation_run, result.issues)
+        return {
+            "design_id": design["id"],
+            "plan_id": plan.id,
+            "validation_run_id": result.validation_run.id,
+            "issue_ids": [issue.id for issue in result.issues],
+            "issues": len(result.issues),
+            "nodes": len(plan.nodes),
+            "timeslots": len(plan.timeslots),
+            "links": len(plan.los_links),
+            "delivered_to_core": all(route.delivered for route in result.issue_routes),
+        }
+
+    def submit_integrator_architecture_design(self, payload: dict[str, str]) -> dict[str, object]:
+        include_modules = self._csv_tuple(payload.get("modules", "jinx-c5isr,jinx-net,jinx-intel,jinx-sim"))
+        design = self.service.integrator_topologies.build_jinx_architecture(
+            name=payload.get("name", "JINX Package Architecture"),
+            summary=payload.get(
+                "summary",
+                "Simulation-first package architecture showing bounded JINX internal connections.",
+            ),
+            modules=tuple(module if module.startswith("jinx-") else f"jinx-{module}" for module in include_modules),
+            include_operator_mini=payload.get("include_operator_mini", "true").lower() != "false",
+        )
+        document = self.service.save_integrator_architecture_design(design)
+        return {
+            "design_id": document["id"],
+            "design_kind": document["design_kind"],
+            "nodes": len(document["nodes"]),
+            "links": len(document["links"]),
+            "summary": document["summary"],
+        }
+
     def submit_mission_context(self, payload: dict[str, str]) -> dict[str, object]:
         mission = MissionContext(
             mission_statement=payload.get(
