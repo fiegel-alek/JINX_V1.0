@@ -205,6 +205,62 @@ class WebDatabaseFrontendTests(TestCase):
             self.assertEqual(architecture_design["design_kind"], "jinx_architecture")
             self.assertGreaterEqual(architecture_design["links"], 4)
 
+            revised_network = handlers.revise_integrator_network_design(
+                {
+                    "design_id": network_design["design_id"],
+                    "name": "Integrator Relay Plan Revised",
+                    "summary": "Adjusted traffic flow to follow revised OPTASKLINK assumptions.",
+                    "nodes_text": (
+                        "node-alpha|Node Alpha|terminal|0.18|0.28|review_required|Ingress terminal under review.\n"
+                        "node-bravo|Node Bravo|gateway|0.50|0.54|planned|Gateway relay center.\n"
+                        "node-charlie|Node Charlie|relay|0.82|0.28|planned|Relay exit node."
+                    ),
+                    "timeslots_text": (
+                        "slot-01|node-alpha|epoch-alpha|synthetic_mtdl\n"
+                        "slot-02|node-bravo|epoch-alpha|synthetic_mtdl\n"
+                        "slot-03|node-charlie|epoch-bravo|synthetic_mtdl"
+                    ),
+                    "los_links_text": (
+                        "node-alpha|node-bravo|clear|Traffic shifted through the gateway.\n"
+                        "node-bravo|node-charlie|degraded|Relay exit remains weather-limited."
+                    ),
+                }
+            )
+            revised_architecture = handlers.revise_integrator_architecture_design(
+                {
+                    "design_id": architecture_design["design_id"],
+                    "name": "JINX Package Architecture Revised",
+                    "summary": "Adjusted bounded package traffic flow through FABRIC and Operator Mini.",
+                    "nodes_text": (
+                        "jinx-operator-mini|JINX-Operator Mini|operator|jinx|0.08|0.68|simulation_only|Field-facing report and advisory edge client.\n"
+                        "jinx-c5isr|JINX-C5ISR|c5isr|jinx|0.27|0.58|simulation_only|COP and operator intake lane.\n"
+                        "jinx-integrator|JINX-Integrator|integrator|jinx|0.27|0.20|simulation_only|Message-family intake and filter control.\n"
+                        "jinx-net|JINX-NET|net|jinx|0.49|0.18|simulation_only|Synthetic tactical link review lane.\n"
+                        "jinx-intel|JINX-INTEL|intel|jinx|0.49|0.78|simulation_only|Synthetic context fusion lane.\n"
+                        "jinx-bus|JINX-BUS / FABRIC|bus|jinx|0.55|0.50|simulation_only|Bounded internal routing and package enforcement.\n"
+                        "jinx-core|JINX-Core|core|jinx|0.74|0.42|simulation_only|Advisory policy and reasoning center.\n"
+                        "jinx-sim|JINX-SIM|sim|jinx|0.76|0.78|simulation_only|Scenario replay lane.\n"
+                        "jinx-brain|JINX-BRAIN|brain|jinx|0.90|0.22|simulation_only|Doctrine and SOP reachback."
+                    ),
+                    "links_text": (
+                        "jinx-integrator|jinx-bus|message_flow|bounded|message_intake.v1|Integrator releases normalized packets into FABRIC.\n"
+                        "jinx-bus|jinx-core|policy_flow|bounded|policy_decision.v1|FABRIC routes approved packets into CORE analysis.\n"
+                        "jinx-core|jinx-brain|reachback|bounded|doctrine_reference.v1|CORE asks BRAIN for doctrine support.\n"
+                        "jinx-operator-mini|jinx-c5isr|edge_report|bounded|operator_report.v1|Operator Mini forwards reports to C5ISR.\n"
+                        "jinx-net|jinx-bus|network_flow|bounded|network_issue.v1|NET feeds bounded timing review through FABRIC."
+                    ),
+                }
+            )
+
+            self.assertEqual(revised_network["design_id"], network_design["design_id"])
+            self.assertEqual(revised_network["nodes"], 3)
+            self.assertEqual(revised_architecture["design_id"], architecture_design["design_id"])
+            self.assertEqual(revised_architecture["links"], 5)
+            self.assertEqual(database.count("integrator_network_designs"), 1)
+            self.assertEqual(database.count("integrator_architecture_designs"), 1)
+            self.assertEqual(database.get_document("integrator_network_designs", network_design["design_id"])["name"], "Integrator Relay Plan Revised")
+            self.assertEqual(database.get_document("integrator_architecture_designs", architecture_design["design_id"])["name"], "JINX Package Architecture Revised")
+
     def test_sprint5_operator_loop_and_scenario_runner(self) -> None:
         with TemporaryDirectory() as tmp:
             database = SQLiteJINXDatabase(Path(tmp) / "jinx.sqlite3")
@@ -723,11 +779,14 @@ class WebDatabaseFrontendTests(TestCase):
         self.assertIn("OPTASKLINK Parser / Network Designer", (static_root / "integrator.html").read_text(encoding="utf-8"))
         self.assertIn("JINX Architecture Designer", (static_root / "integrator.html").read_text(encoding="utf-8"))
         self.assertIn("Integration Node Map", (static_root / "integrator.html").read_text(encoding="utf-8"))
+        self.assertIn("Topology Revision Workbench", (static_root / "integrator.html").read_text(encoding="utf-8"))
         self.assertIn("/api/integrator/messages", (static_root / "integrator_app.js").read_text(encoding="utf-8"))
         self.assertIn("/api/integrator/routes", (static_root / "integrator_app.js").read_text(encoding="utf-8"))
         self.assertIn("/api/integrator/parser-runs", (static_root / "integrator_app.js").read_text(encoding="utf-8"))
         self.assertIn("/api/integrator/network-designs", (static_root / "integrator_app.js").read_text(encoding="utf-8"))
         self.assertIn("/api/integrator/architecture-designs", (static_root / "integrator_app.js").read_text(encoding="utf-8"))
+        self.assertIn("/api/integrator/network-designs/revise", (static_root / "integrator_app.js").read_text(encoding="utf-8"))
+        self.assertIn("/api/integrator/architecture-designs/revise", (static_root / "integrator_app.js").read_text(encoding="utf-8"))
         self.assertIn("JINX-Operator Mini", (static_root / "operator.html").read_text(encoding="utf-8"))
         self.assertIn("/api/operator/workspace", (static_root / "operator_app.js").read_text(encoding="utf-8"))
         self.assertIn("/api/operator/report", (static_root / "operator_app.js").read_text(encoding="utf-8"))
@@ -758,6 +817,7 @@ class WebDatabaseFrontendTests(TestCase):
         self.assertIn("renderInspector", (static_root / "integrator_app.js").read_text(encoding="utf-8"))
         self.assertIn("renderLanes", (static_root / "integrator_app.js").read_text(encoding="utf-8"))
         self.assertIn("renderTopologyMap", (static_root / "integrator_app.js").read_text(encoding="utf-8"))
+        self.assertIn("renderTopologyEditor", (static_root / "integrator_app.js").read_text(encoding="utf-8"))
         self.assertIn("renderOperationalFocus", (static_root / "c5isr_app.js").read_text(encoding="utf-8"))
         self.assertIn("renderNetFocus", (static_root / "net_app.js").read_text(encoding="utf-8"))
         self.assertIn("renderIntelFocus", (static_root / "intel_app.js").read_text(encoding="utf-8"))
@@ -834,6 +894,8 @@ class WebDatabaseFrontendTests(TestCase):
         self.assertIn("/api/integrator/routes", integrator_js)
         self.assertIn("/api/integrator/network-designs", integrator_js)
         self.assertIn("/api/integrator/architecture-designs", integrator_js)
+        self.assertIn("/api/integrator/network-designs/revise", integrator_js)
+        self.assertIn("/api/integrator/architecture-designs/revise", integrator_js)
         self.assertIn("/api/auth/login", integrator_js)
         self.assertNotIn("/api/cop", integrator_js)
         self.assertNotIn("/api/net", integrator_js)

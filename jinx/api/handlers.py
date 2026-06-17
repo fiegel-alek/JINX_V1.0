@@ -7,7 +7,12 @@ from jinx.core.schemas import Location, MissionContext, MissionTask
 from jinx.common.types.confidence import ConfidenceScore
 from jinx.core.provenance import ProvenanceRecord
 from jinx.modules.intel import IntelligenceSummary, ISRFeedSnapshot
-from jinx.modules.integrator import SyntheticMessageFamilyParser
+from jinx.modules.integrator import (
+    IntegratorTopologyDesign,
+    IntegratorTopologyLink,
+    IntegratorTopologyNode,
+    SyntheticMessageFamilyParser,
+)
 from jinx.modules.net import LOSLink, NetworkNode, NetworkPlan, SyntheticNetworkPlanParser, TimeslotAllocation
 from datetime import UTC, datetime
 
@@ -192,6 +197,61 @@ class JINXAPIHandlers:
             "summary": document["summary"],
         }
 
+    def revise_integrator_network_design(self, payload: dict[str, str]) -> dict[str, object]:
+        existing = self.service.integrator_network_designs_document()["integrator_network_designs"]
+        design_id = payload["design_id"]
+        current = next((record for record in existing if record.get("id") == design_id), None)
+        if current is None:
+            raise ValueError("integrator network design not found")
+
+        plan = self._network_plan_from_revision_payload(payload, current)
+        result = self.service.submit_network_plan(plan)
+        node_overrides = self._network_node_overrides_from_text(payload.get("nodes_text", ""))
+        summary = payload.get("summary", current.get("summary", "")).strip() or current.get("summary", "")
+        name = payload.get("name", current.get("name", "")).strip() or current.get("name", "")
+        document = self.service.save_integrator_network_design(
+            plan,
+            result.validation_run,
+            result.issues,
+            design_id=design_id,
+            name_override=name,
+            summary_override=summary,
+            node_overrides=node_overrides,
+        )
+        return {
+            "design_id": document["id"],
+            "plan_id": plan.id,
+            "validation_run_id": result.validation_run.id,
+            "issue_ids": [issue.id for issue in result.issues],
+            "issues": len(result.issues),
+            "nodes": len(document["nodes"]),
+            "links": len(document["links"]),
+        }
+
+    def revise_integrator_architecture_design(self, payload: dict[str, str]) -> dict[str, object]:
+        design_id = payload["design_id"]
+        nodes = self._architecture_nodes_from_text(payload["nodes_text"])
+        links = self._architecture_links_from_text(payload["links_text"])
+        design = IntegratorTopologyDesign(
+            name=payload.get("name", "JINX Package Architecture"),
+            summary=payload.get(
+                "summary",
+                "Simulation-first package architecture showing bounded internal JINX connections.",
+            ),
+            design_kind="jinx_architecture",
+            nodes=nodes,
+            links=links,
+            source_reference=payload.get("source_reference", "integrator-architecture-editor"),
+        )
+        document = self.service.save_integrator_architecture_design(design, design_id=design_id)
+        return {
+            "design_id": document["id"],
+            "design_kind": document["design_kind"],
+            "nodes": len(document["nodes"]),
+            "links": len(document["links"]),
+            "summary": document["summary"],
+        }
+
     def submit_mission_context(self, payload: dict[str, str]) -> dict[str, object]:
         mission = MissionContext(
             mission_statement=payload.get(
@@ -263,6 +323,113 @@ class JINXAPIHandlers:
             data_mode=DataMode.SYNTHETIC,
             source_format=payload.get("source_format", "synthetic_form"),
         )
+
+    def _network_plan_from_revision_payload(self, payload: dict[str, str], current: dict[str, object]) -> NetworkPlan:
+        nodes = self._network_nodes_from_text(payload["nodes_text"])
+        timeslots = self._network_timeslots_from_text(payload["timeslots_text"])
+        los_links = self._network_los_from_text(payload["los_links_text"])
+        return NetworkPlan(
+            name=payload.get("name", str(current.get("name", "Synthetic MTDL Network Plan"))),
+            nodes=nodes,
+            timeslots=timeslots,
+            los_links=los_links,
+            confidence=self._synthetic_confidence(),
+            provenance=self._synthetic_provenance("jinx-api.integrator-network-revision"),
+            data_mode=DataMode.SYNTHETIC,
+            source_format=str(current.get("source_format", "integrator_optasklink_stub")),
+        )
+
+    def _network_nodes_from_text(self, text: str) -> tuple[NetworkNode, ...]:
+        nodes: list[NetworkNode] = []
+        for line in self._lines(text):
+            node_id, label, node_type, *_ = self._pipe_fields(line, 3)
+            nodes.append(NetworkNode(node_id, label, node_type))
+        if not nodes:
+            raise ValueError("network design revision requires node lines")
+        return tuple(nodes)
+
+    def _network_node_overrides_from_text(self, text: str) -> dict[str, dict[str, object]]:
+        overrides: dict[str, dict[str, object]] = {}
+        for line in self._lines(text):
+            node_id, label, node_type, x, y, *rest = self._pipe_fields(line, 5)
+            status = rest[0] if len(rest) >= 1 else "planned"
+            detail = rest[1] if len(rest) >= 2 else f"{node_type} node from edited design."
+            overrides[node_id] = {
+                "label": label,
+                "x": float(x),
+                "y": float(y),
+                "status": status,
+                "detail": detail,
+            }
+        return overrides
+
+    def _network_timeslots_from_text(self, text: str) -> tuple[TimeslotAllocation, ...]:
+        rows: list[TimeslotAllocation] = []
+        for line in self._lines(text):
+            slot_id, node_id, epoch, *rest = self._pipe_fields(line, 3)
+            purpose = rest[0] if rest else "synthetic_mtdl"
+            rows.append(TimeslotAllocation(slot_id, node_id, epoch, purpose))
+        return tuple(rows)
+
+    def _network_los_from_text(self, text: str) -> tuple[LOSLink, ...]:
+        rows: list[LOSLink] = []
+        for line in self._lines(text):
+            from_node, to_node, status, rationale = self._pipe_fields(line, 4)
+            rows.append(LOSLink(from_node, to_node, status, rationale))
+        return tuple(rows)
+
+    def _architecture_nodes_from_text(self, text: str) -> tuple[IntegratorTopologyNode, ...]:
+        nodes: list[IntegratorTopologyNode] = []
+        for line in self._lines(text):
+            node_id, label, node_type, domain, x, y, *rest = self._pipe_fields(line, 6)
+            status = rest[0] if len(rest) >= 1 else "planned"
+            detail = rest[1] if len(rest) >= 2 else ""
+            nodes.append(
+                IntegratorTopologyNode(
+                    id=node_id,
+                    label=label,
+                    node_type=node_type,
+                    domain=domain,
+                    x=float(x),
+                    y=float(y),
+                    status=status,
+                    detail=detail,
+                )
+            )
+        if not nodes:
+            raise ValueError("architecture revision requires node lines")
+        return tuple(nodes)
+
+    def _architecture_links_from_text(self, text: str) -> tuple[IntegratorTopologyLink, ...]:
+        links: list[IntegratorTopologyLink] = []
+        for index, line in enumerate(self._lines(text), start=1):
+            source, target, link_type, status, payloads_text, summary = self._pipe_fields(line, 6)
+            payloads = tuple(item.strip() for item in payloads_text.split(",") if item.strip())
+            links.append(
+                IntegratorTopologyLink(
+                    id=f"integrator-architecture-link-{index}",
+                    source=source,
+                    target=target,
+                    link_type=link_type,
+                    status=status,
+                    summary=summary,
+                    payloads=payloads,
+                )
+            )
+        if not links:
+            raise ValueError("architecture revision requires link lines")
+        return tuple(links)
+
+    @staticmethod
+    def _lines(text: str) -> tuple[str, ...]:
+        return tuple(line.strip() for line in text.splitlines() if line.strip())
+
+    @staticmethod
+    def _pipe_fields(text: str, minimum: int) -> list[str]:
+        parts = [part.strip() for part in text.split("|")]
+        if len(parts) < minimum or any(not part for part in parts[:minimum]):
+            raise ValueError(f"expected at least {minimum} pipe-delimited fields")
+        return parts
 
     def query_brain(self, payload: dict[str, str]) -> dict[str, object]:
         return self.service.brain_query_document(

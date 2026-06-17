@@ -572,6 +572,14 @@ class JINXRequestHandler(SimpleHTTPRequestHandler):
                 self._require_permission("integrator:submit")
                 self._send_json(self.server.api_handlers.submit_integrator_architecture_design(payload), status=201)
                 return
+            if parsed.path == "/api/integrator/network-designs/revise":
+                self._require_permission("integrator:submit")
+                self._send_json(self.server.api_handlers.revise_integrator_network_design(payload), status=200)
+                return
+            if parsed.path == "/api/integrator/architecture-designs/revise":
+                self._require_permission("integrator:submit")
+                self._send_json(self.server.api_handlers.revise_integrator_architecture_design(payload), status=200)
+                return
             if parsed.path == "/api/brain/query":
                 self._require_permission("brain:query")
                 self._send_json(self.server.api_handlers.query_brain(payload), status=200)

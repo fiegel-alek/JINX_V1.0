@@ -45,6 +45,10 @@ const integrator = {
   topologySummary: document.querySelector("#topology-summary"),
   networkDesignList: document.querySelector("#network-design-list"),
   architectureDesignList: document.querySelector("#architecture-design-list"),
+  editorKind: document.querySelector("#editor-kind"),
+  editorSummary: document.querySelector("#editor-summary"),
+  networkRevisionForm: document.querySelector("#network-revision-form"),
+  architectureRevisionForm: document.querySelector("#architecture-revision-form"),
   brainChatForm: document.querySelector("#brain-chat-form"),
   refreshButton: document.querySelector("#refresh-button"),
 };
@@ -310,6 +314,64 @@ function ensureTopologySelection() {
   if (selected) return selected;
   state.selectedTopologyId = records[0].id;
   return records[0];
+}
+
+function activeTopologyDesign() {
+  return topologyRecords(state.topologyMode).find((record) => record.id === state.selectedTopologyId) || ensureTopologySelection();
+}
+
+function networkNodesText(design) {
+  return (design.nodes || []).map((node) => [
+    node.id,
+    node.label,
+    node.node_type,
+    node.x,
+    node.y,
+    node.status || "planned",
+    node.detail || "",
+  ].join("|")).join("\n");
+}
+
+function networkTimeslotsText(design) {
+  return (design.timeslots || []).map((slot) => [
+    slot.slot_id,
+    slot.node_id,
+    slot.epoch,
+    slot.purpose || "synthetic_mtdl",
+  ].join("|")).join("\n");
+}
+
+function networkLosText(design) {
+  return (design.los_links || []).map((link) => [
+    link.from_node,
+    link.to_node,
+    link.status,
+    link.rationale,
+  ].join("|")).join("\n");
+}
+
+function architectureNodesText(design) {
+  return (design.nodes || []).map((node) => [
+    node.id,
+    node.label,
+    node.node_type,
+    node.domain,
+    node.x,
+    node.y,
+    node.status || "planned",
+    node.detail || "",
+  ].join("|")).join("\n");
+}
+
+function architectureLinksText(design) {
+  return (design.links || []).map((link) => [
+    link.source,
+    link.target,
+    link.link_type,
+    link.status,
+    (link.payloads || []).join(","),
+    link.summary,
+  ].join("|")).join("\n");
 }
 
 function renderSession(sessionDoc, entitlements) {
@@ -747,6 +809,53 @@ function renderTopologyMap() {
   `;
 }
 
+function renderTopologyEditor() {
+  const design = activeTopologyDesign();
+  if (!design) {
+    integrator.editorKind.textContent = "Awaiting selection";
+    integrator.editorSummary.className = "list empty";
+    integrator.editorSummary.textContent = "Select a network design or architecture design to load its editable topology definition.";
+    integrator.networkRevisionForm.classList.add("is-hidden");
+    integrator.architectureRevisionForm.classList.add("is-hidden");
+    return;
+  }
+
+  integrator.editorKind.textContent = design.design_kind === "jinx_architecture" ? "JINX architecture revision" : "network design revision";
+  integrator.editorSummary.className = "list";
+  integrator.editorSummary.innerHTML = `
+    <article class="item ${design.design_kind === "jinx_architecture" ? "ops" : "net"}">
+      <strong>${escapeHTML(design.name)}</strong>
+      <span class="item-caption">${escapeHTML(formatTimestamp(design.timestamp))} · ${escapeHTML(design.design_kind)}</span>
+      <span>${escapeHTML(design.summary)}</span>
+      ${pairGrid([
+        ["Nodes", (design.nodes || []).length],
+        ["Links", (design.links || []).length],
+        ["Selection", design.id],
+      ])}
+    </article>
+  `;
+
+  if (design.design_kind === "jinx_architecture") {
+    integrator.networkRevisionForm.classList.add("is-hidden");
+    integrator.architectureRevisionForm.classList.remove("is-hidden");
+    integrator.architectureRevisionForm.elements.design_id.value = design.id;
+    integrator.architectureRevisionForm.elements.name.value = design.name || "";
+    integrator.architectureRevisionForm.elements.summary.value = design.summary || "";
+    integrator.architectureRevisionForm.elements.nodes_text.value = architectureNodesText(design);
+    integrator.architectureRevisionForm.elements.links_text.value = architectureLinksText(design);
+    return;
+  }
+
+  integrator.architectureRevisionForm.classList.add("is-hidden");
+  integrator.networkRevisionForm.classList.remove("is-hidden");
+  integrator.networkRevisionForm.elements.design_id.value = design.id;
+  integrator.networkRevisionForm.elements.name.value = design.name || "";
+  integrator.networkRevisionForm.elements.summary.value = design.summary || "";
+  integrator.networkRevisionForm.elements.nodes_text.value = networkNodesText(design);
+  integrator.networkRevisionForm.elements.timeslots_text.value = networkTimeslotsText(design);
+  integrator.networkRevisionForm.elements.los_links_text.value = networkLosText(design);
+}
+
 function syncTemplate(force = false) {
   const family = integrator.messageFamilySelect.value;
   const template = TEMPLATE_BY_FAMILY[family] || TEMPLATE_BY_FAMILY.vmf;
@@ -776,6 +885,7 @@ function renderAll() {
   renderNetworkDesigns(state.networkDesigns);
   renderArchitectureDesigns(state.architectureDesigns);
   renderTopologyMap();
+  renderTopologyEditor();
 }
 
 async function refresh() {
@@ -818,6 +928,7 @@ async function refresh() {
     renderInspector(null);
     renderFocus([], [], []);
     renderTopologyMap();
+    renderTopologyEditor();
   }
 }
 
@@ -867,6 +978,24 @@ integrator.architectureForm.addEventListener("submit", async (event) => {
   const response = await postJSON("/api/integrator/architecture-designs", payload);
   state.topologyMode = "architecture";
   state.selectedTopologyId = response.design_id || "";
+  await refresh();
+});
+
+integrator.networkRevisionForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const payload = Object.fromEntries(new FormData(integrator.networkRevisionForm).entries());
+  const response = await postJSON("/api/integrator/network-designs/revise", payload);
+  state.topologyMode = "network";
+  state.selectedTopologyId = response.design_id || payload.design_id || "";
+  await refresh();
+});
+
+integrator.architectureRevisionForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const payload = Object.fromEntries(new FormData(integrator.architectureRevisionForm).entries());
+  const response = await postJSON("/api/integrator/architecture-designs/revise", payload);
+  state.topologyMode = "architecture";
+  state.selectedTopologyId = response.design_id || payload.design_id || "";
   await refresh();
 });
 

@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>JINX-Integrator Intake Desk</title>
-    <link rel="stylesheet" href="/styles.css?v=integrator-watchfloor-2" />
+    <link rel="stylesheet" href="/styles.css?v=integrator-watchfloor-3" />
   </head>
   <body>
     <main class="app-shell">
@@ -366,6 +366,76 @@ los: node-bravo, node-charlie, clear, Synthetic relay path currently feasible.</
           </section>
         </section>
 
+        <section class="panel" id="topology-editor-panel">
+          <div class="section-head">
+            <h2>Topology Revision Workbench</h2>
+            <span id="editor-kind">Awaiting selection</span>
+          </div>
+          <p class="section-note">Edit synthetic traffic flow assumptions, node placement, timeslots, and bounded JINX connections here. These revisions remain simulation-first and advisory-only.</p>
+          <div id="editor-summary" class="list empty">Select a network design or architecture design to load its editable topology definition.</div>
+
+          <form id="network-revision-form" class="form editor-form">
+            <input type="hidden" name="design_id" />
+            <div class="form-grid">
+              <label>
+                <span class="field-label">Network design name</span>
+                <span class="field-help">Revision label for the selected OPTASKLINK/NDD-style design</span>
+                <input name="name" required />
+              </label>
+              <label>
+                <span class="field-label">Network summary</span>
+                <span class="field-help">What this synthetic traffic design should communicate to NET and Core review lanes</span>
+                <input name="summary" required />
+              </label>
+            </div>
+            <label>
+              <span class="field-label">Nodes</span>
+              <span class="field-help">Format: `node_id|label|node_type|x|y|status|detail`</span>
+              <textarea name="nodes_text" required></textarea>
+            </label>
+            <div class="form-grid">
+              <label>
+                <span class="field-label">Timeslots</span>
+                <span class="field-help">Format: `slot_id|node_id|epoch|purpose`</span>
+                <textarea name="timeslots_text" required></textarea>
+              </label>
+              <label>
+                <span class="field-label">LOS / Flow Links</span>
+                <span class="field-help">Format: `from_node|to_node|status|summary`</span>
+                <textarea name="los_links_text" required></textarea>
+              </label>
+            </div>
+            <button type="submit">Save Network Revision</button>
+          </form>
+
+          <form id="architecture-revision-form" class="form editor-form">
+            <input type="hidden" name="design_id" />
+            <div class="form-grid">
+              <label>
+                <span class="field-label">Architecture name</span>
+                <span class="field-help">Revision label for the selected JINX topology</span>
+                <input name="name" required />
+              </label>
+              <label>
+                <span class="field-label">Architecture summary</span>
+                <span class="field-help">What bounded traffic flow or package behavior this architecture should emphasize</span>
+                <input name="summary" required />
+              </label>
+            </div>
+            <label>
+              <span class="field-label">Nodes</span>
+              <span class="field-help">Format: `node_id|label|node_type|domain|x|y|status|detail`</span>
+              <textarea name="nodes_text" required></textarea>
+            </label>
+            <label>
+              <span class="field-label">Connections</span>
+              <span class="field-help">Format: `source|target|link_type|status|payload_a,payload_b|summary`</span>
+              <textarea name="links_text" required></textarea>
+            </label>
+            <button type="submit">Save Architecture Revision</button>
+          </form>
+        </section>
+
         <section class="data-grid two" id="routing">
           <section class="panel">
             <div class="section-head">
@@ -425,6 +495,6 @@ los: node-bravo, node-charlie, clear, Synthetic relay path currently feasible.</
         </section>
       </section>
     </main>
-    <script src="/integrator_app.js?v=integrator-watchfloor-2"></script>
+    <script src="/integrator_app.js?v=integrator-watchfloor-3"></script>
   </body>
 </html>

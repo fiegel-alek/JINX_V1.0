@@ -3856,18 +3856,27 @@ class JINXApplicationService:
         plan: NetworkPlan,
         validation_run: NetworkValidationRun,
         issues: tuple[NetworkIssue, ...],
+        *,
+        design_id: str | None = None,
+        name_override: str | None = None,
+        summary_override: str | None = None,
+        node_overrides: dict[str, dict[str, object]] | None = None,
     ) -> dict[str, object]:
         design = self.integrator_topologies.build_optasklink_network(plan, validation_run, issues)
+        node_overrides = node_overrides or {}
         document = {
-            "id": f"integrator-network-design-{plan.id}",
+            "id": design_id or f"integrator-network-design-{plan.id}",
             "design_kind": design.design_kind,
-            "name": design.name,
-            "summary": design.summary,
+            "name": name_override or design.name,
+            "summary": summary_override or design.summary,
             "plan_id": plan.id,
             "validation_run_id": validation_run.id,
             "issue_ids": [issue.id for issue in issues],
             "source_format": plan.source_format,
-            "nodes": [self._serialize_integrator_topology_node(node) for node in design.nodes],
+            "nodes": [
+                self._serialize_integrator_topology_node_with_override(node, node_overrides.get(node.id, {}))
+                for node in design.nodes
+            ],
             "links": [self._serialize_integrator_topology_link(link) for link in design.links],
             "timeslots": [
                 {
@@ -3896,9 +3905,14 @@ class JINXApplicationService:
             self.database.save_document("integrator_network_designs", document["id"], document)
         return document
 
-    def save_integrator_architecture_design(self, design: IntegratorTopologyDesign) -> dict[str, object]:
+    def save_integrator_architecture_design(
+        self,
+        design: IntegratorTopologyDesign,
+        *,
+        design_id: str | None = None,
+    ) -> dict[str, object]:
         document = {
-            "id": design.id,
+            "id": design_id or design.id,
             "design_kind": design.design_kind,
             "name": design.name,
             "summary": design.summary,
@@ -3909,7 +3923,7 @@ class JINXApplicationService:
             "timestamp": design.timestamp.isoformat(),
         }
         if self.database is not None:
-            self.database.save_document("integrator_architecture_designs", design.id, document)
+            self.database.save_document("integrator_architecture_designs", document["id"], document)
         return document
 
     def _persist_network_plan(
@@ -4175,6 +4189,21 @@ class JINXApplicationService:
             "status": node.status,
             "detail": node.detail,
         }
+
+    @staticmethod
+    def _serialize_integrator_topology_node_with_override(node: Any, override: dict[str, object]) -> dict[str, object]:
+        record = JINXApplicationService._serialize_integrator_topology_node(node)
+        if "x" in override:
+            record["x"] = override["x"]
+        if "y" in override:
+            record["y"] = override["y"]
+        if "status" in override and override["status"]:
+            record["status"] = override["status"]
+        if "detail" in override:
+            record["detail"] = override["detail"]
+        if "label" in override and override["label"]:
+            record["label"] = override["label"]
+        return record
 
     @staticmethod
     def _serialize_integrator_topology_link(link: Any) -> dict[str, object]:
